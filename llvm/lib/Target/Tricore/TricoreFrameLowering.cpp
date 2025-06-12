@@ -76,9 +76,38 @@ void TricoreFrameLowering::emitPrologue(MachineFunction &MF,
 
 MachineBasicBlock::iterator TricoreFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
-    MachineBasicBlock::iterator I) const {
+    MachineBasicBlock::iterator MI) const {
 
-  return MBB.erase(I);
+  DebugLoc DL = MI->getDebugLoc();
+
+  if (!hasReservedCallFrame(MF)) {
+    // If space has not been reserved for a call frame, ADJCALLSTACKDOWN and
+    // ADJCALLSTACKUP must be converted to instructions manipulating the stack
+    // pointer. This is necessary when there is a variable length stack
+    // allocation (e.g. alloca), which means it's not possible to allocate
+    // space for outgoing arguments from within the function prologue.
+    int64_t Amount = MI->getOperand(0).getImm();
+
+    if (Amount != 0) {
+      // Ensure the stack remains aligned after adjustment.
+      Amount = alignSPAdjust(Amount);
+
+      const TricoreInstrInfo &TII = *static_cast<const TricoreInstrInfo *>(
+          MF.getSubtarget().getInstrInfo());
+      if (MI->getOpcode() == Tricore::ADJCALLSTACKDOWN) {
+        BuildMI(MBB, MI, DL, TII.get(Tricore::SUBA_SC), Tricore::A10)
+            .addReg(Tricore::A10)
+            .addImm(Amount);
+      } else {
+        BuildMI(MBB, MI, DL, TII.get(Tricore::addi), Tricore::A10)
+            .addReg(Tricore::A10)
+            .addReg(Tricore::A10)
+            .addImm(Amount);
+      }
+    }
+  }
+
+  return MBB.erase(MI);
 }
 
 void TricoreFrameLowering::emitEpilogue(MachineFunction &MF,
@@ -106,38 +135,15 @@ TricoreFrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
   const TricoreRegisterInfo *RegInfo = Subtarget.getRegisterInfo();
   const TricoreMachineFunctionInfo *FuncInfo =
       MF.getInfo<TricoreMachineFunctionInfo>();
-  bool isFixed = MFI.isFixedObjectIndex(FI);
 
-  // Addressable stack objects are accessed using neg. offsets from
-  // %fp, or positive offsets from %sp.
-  bool UseFP;
+  int64_t FrameOffset = MF.getFrameInfo().getObjectOffset(FI);
 
-  // Tricore uses FP-based references in general, even when "hasFP" is
-  // false. That function is rather a misnomer, because %fp is
-  // actually always available, unless isLeafProc.
-  if (FuncInfo->isLeafProc()) {
-    // If there's a leaf proc, all offsets need to be %sp-based,
-    // because we haven't caused %fp to actually point to our frame.
-    UseFP = false;
-  } else if (isFixed) {
-    // Otherwise, argument access should always use %fp.
-    UseFP = true;
-  } else {
-    // Finally, default to using %fp.
-    UseFP = true;
-  }
-
-  int64_t FrameOffset =
-      MF.getFrameInfo().getObjectOffset(FI) + Subtarget.getStackPointerBias();
-
-  if (UseFP) {
+  if (hasFP(MF)) {
     FrameReg = RegInfo->getFrameRegister(MF);
     return StackOffset::getFixed(FrameOffset);
-  } else {
-    FrameReg = SP::O6; // %sp
-    return StackOffset::getFixed(FrameOffset +
-                                 MF.getFrameInfo().getStackSize());
   }
+  FrameReg = Tricore::A10;
+  return StackOffset::getFixed(FrameOffset + MF.getFrameInfo().getStackSize());
 }
 
 static bool LLVM_ATTRIBUTE_UNUSED

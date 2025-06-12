@@ -24,8 +24,11 @@ class TricoreSubtarget;
 namespace TricoreISD {
 enum NodeType : unsigned {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
-  CALL,     // A call instruction.
+  CALL, // A call instruction.
+  TAIL,
   RET_GLUE, // Return with a glue operand.
+  LEA,
+  MOVHA,
 };
 }
 
@@ -47,6 +50,9 @@ public:
                       const SmallVectorImpl<SDValue> & /*OutVals*/,
                       const SDLoc & /*dl*/,
                       SelectionDAG & /*DAG*/) const override;
+  SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+
+  SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
 
   bool useSoftFloat() const override;
 };
