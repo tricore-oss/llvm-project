@@ -7,6 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/TricoreInstPrinter.h"
 #include "MCTargetDesc/TricoreMCExpr.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
 #include "TargetInfo/TricoreTargetInfo.h"
@@ -16,6 +17,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/MC/MCAsmMacro.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -28,6 +30,7 @@
 #include "llvm/MC/MCParser/MCAsmParserUtils.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
+#include "llvm/MC/MCRegister.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -64,14 +67,6 @@ class TricoreAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
   const MCRegisterInfo &MRI;
 
-  /// @name Auto-generated Match Functions
-  /// {
-
-#define GET_ASSEMBLER_HEADER
-#include "TricoreGenAsmMatcher.inc"
-
-  /// }
-
   // public interface of the MCTargetAsmParser.
   bool matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                OperandVector &Operands, MCStreamer &Out,
@@ -84,8 +79,26 @@ class TricoreAsmParser : public MCTargetAsmParser {
                         SMLoc NameLoc, OperandVector &Operands) override;
   ParseStatus parseDirective(AsmToken DirectiveID) override;
 
+  ParseStatus parseCallTarget(OperandVector &Operands);
+  bool parseOperand(OperandVector &Operands, StringRef Mnemonic);
+
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op,
                                       unsigned Kind) override;
+
+  // Check instruction constraints.
+  bool validateInstruction(MCInst &Inst, OperandVector &Operands);
+
+  // post process pseudo instructions
+  bool processInstruction(MCInst &Inst, SMLoc IDLoc, OperandVector &Operands,
+                          MCStreamer &Out);
+
+// Auto-generated instruction matching functions
+#define GET_ASSEMBLER_HEADER
+#include "TricoreGenAsmMatcher.inc"
+
+  ParseStatus parseRegister(OperandVector &Operands);
+  ParseStatus parseImmediate(OperandVector &Operands);
+  ParseStatus parseMemOperand(OperandVector &Operands);
 
 public:
   TricoreAsmParser(const MCSubtargetInfo &sti, MCAsmParser &parser,
@@ -115,17 +128,14 @@ public:
     rk_DataDouble,
     rk_AddrDouble,
   };
+  enum MemoryKind { Offset, PostInc, PreInc };
 
 private:
   enum KindTy {
-    k_Token,
-    k_Register,
-    k_Immediate,
-    k_MemoryReg,
-    k_MemoryImm,
-    k_ASITag,
-    k_PrefetchTag,
-    k_TailRelocSym, // Special kind of immediate for TLS relocation purposes.
+    Token,
+    Register,
+    Immediate,
+    Memory,
   } Kind;
 
   SMLoc StartLoc, EndLoc;
@@ -145,9 +155,9 @@ private:
   };
 
   struct MemOp {
-    unsigned Base;
-    unsigned OffsetReg;
+    unsigned RegNum;
     const MCExpr *Off;
+    MemoryKind Kind;
   };
 
   union {
@@ -162,7 +172,99 @@ private:
 public:
   TricoreOperand(KindTy K) : Kind(K) {}
 
+  bool isToken() const override { return Kind == Token; }
+  bool isImm() const override { return Kind == Immediate; }
+  bool isReg() const override { return Kind == Register; }
+  MCRegister getReg() const override {
+    assert(isReg() || isMem());
+    return isReg() ? Reg.RegNum : Mem.RegNum;
+  }
+  bool isMem() const override { return Kind == Memory; }
+
+  SMLoc getStartLoc() const override { return StartLoc; }
+  SMLoc getEndLoc() const override { return EndLoc; }
+
+  void print(raw_ostream &OS) const override {
+    auto RegName = [](MCRegister Reg) {
+      if (Reg)
+        return TricoreInstPrinter::getRegisterName(Reg);
+      else
+        return "noreg";
+    };
+
+    switch (Kind) {
+    case KindTy::Immediate:
+      OS << *getImm();
+      break;
+    case KindTy::Register:
+      OS << "<register " << RegName(getReg()) << ">";
+      break;
+    case KindTy::Memory:
+      OS << "<memory " << (Mem.Kind == PreInc ? "+" : "") << RegName(getReg())
+         << (Mem.Kind == PostInc ? "+" : "") << *Mem.Off;
+      break;
+    case KindTy::Token:
+      OS << "'" << getToken() << "'";
+      break;
+    }
+  }
+
 public:
+  static std::unique_ptr<TricoreOperand> createToken(StringRef Str, SMLoc S) {
+    auto Op = std::make_unique<TricoreOperand>(KindTy::Token);
+    Op->Tok.Data = Str.data();
+    Op->Tok.Length = Str.size();
+    Op->StartLoc = S;
+    return Op;
+  }
+
+  static std::unique_ptr<TricoreOperand> createReg(MCRegister Reg, SMLoc S,
+                                                   SMLoc E) {
+    auto Op = std::make_unique<TricoreOperand>(KindTy::Register);
+    Op->Reg.RegNum = Reg;
+    Op->Reg.Kind = rk_None;
+    Op->StartLoc = S;
+    Op->EndLoc = E;
+    return Op;
+  }
+
+  static std::unique_ptr<TricoreOperand> createImm(const MCExpr *Val, SMLoc S,
+                                                   SMLoc E) {
+    auto Op = std::make_unique<TricoreOperand>(KindTy::Immediate);
+    Op->Imm.Val = Val;
+    Op->StartLoc = S;
+    Op->EndLoc = E;
+    return Op;
+  }
+
+  static std::unique_ptr<TricoreOperand> createMemory(MCRegister Reg,
+                                                      MemoryKind MK,
+                                                      const MCExpr *Off,
+                                                      SMLoc S, SMLoc E) {
+    auto Op = std::make_unique<TricoreOperand>(KindTy::Memory);
+    Op->Mem.RegNum = Reg;
+    Op->Mem.Kind = MK;
+    Op->Mem.Off = Off;
+    Op->StartLoc = S;
+    Op->EndLoc = E;
+    return Op;
+  }
+
+  static bool classifySymbolRef(const MCExpr *Expr,
+                                TricoreMCExpr::VariantKind &Kind) {
+    Kind = TricoreMCExpr::VK_Tricore_None;
+
+    if (const TricoreMCExpr *RE = dyn_cast<TricoreMCExpr>(Expr)) {
+      Kind = RE->getKind();
+      Expr = RE->getSubExpr();
+    }
+
+    MCValue Res;
+    if (Expr->evaluateAsRelocatable(Res, nullptr, nullptr))
+      return Res.getRefKind() == TricoreMCExpr::VK_Tricore_None;
+    return false;
+  }
+
   static bool evaluateConstantImm(const MCExpr *Expr, int64_t &Imm,
                                   TricoreMCExpr::VariantKind &VK) {
     if (auto *RE = dyn_cast<TricoreMCExpr>(Expr)) {
@@ -179,6 +281,53 @@ public:
     return false;
   }
 
+  bool isCallTarget() const {
+    int64_t Imm;
+    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
+    if (!isImm() || evaluateConstantImm(getImm(), Imm, VK))
+      return false;
+
+    if (Imm % 2 != 0)
+      return false;
+
+    return classifySymbolRef(getImm(), VK) &&
+           VK == TricoreMCExpr::VK_Tricore_24REL;
+  }
+
+  template <int bits> bool isMemWithSimmOffset() const {
+    bool IsValid;
+    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
+    int64_t Imm;
+    if (!isMem())
+      return false;
+    bool IsConstantImm = evaluateConstantImm(Mem.Off, Imm, VK);
+    if (!IsConstantImm)
+      assert(false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(),
+                     // VK);
+    else
+      IsValid = isInt<bits>(Imm);
+    return IsValid &&
+           ((IsConstantImm && VK == TricoreMCExpr::VK_Tricore_None) ||
+            VK == TricoreMCExpr::VK_Tricore_LO);
+  }
+
+  template <int bits> bool isDisp() const {
+    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
+    int64_t Imm;
+    bool IsValid;
+    if (!isImm())
+      return false;
+    bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
+    if (!IsConstantImm)
+      assert(false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(),
+                     // VK);
+    else
+      IsValid = isShiftedInt<bits, 1>(Imm);
+    return IsValid &&
+           ((IsConstantImm && VK == TricoreMCExpr::VK_Tricore_None) ||
+            VK == TricoreMCExpr::VK_Tricore_LO);
+  }
+
   bool isSImm10() const {
     TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
     int64_t Imm;
@@ -187,8 +336,8 @@ public:
       return false;
     bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
     if (!IsConstantImm)
-      assert(
-          false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(), VK);
+      assert(false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(),
+                     // VK);
     else
       IsValid = isInt<10>(Imm);
     return IsValid &&
@@ -204,8 +353,8 @@ public:
       return false;
     bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
     if (!IsConstantImm)
-      assert(
-          false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(), VK);
+      assert(false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(),
+                     // VK);
     else
       IsValid = isInt<12>(Imm);
     return IsValid &&
@@ -213,30 +362,39 @@ public:
             VK == TricoreMCExpr::VK_Tricore_LO);
   }
 
-  bool isUImm8() const {
-    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
-    int64_t Imm;
-    bool IsValid;
+  template <unsigned N, int P = 0> bool isUImm() const {
     if (!isImm())
       return false;
+
+    int64_t Imm;
+    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
     bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
-    if (!IsConstantImm)
-      assert(
-          false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(), VK);
-    else
-      IsValid = isUInt<8>(Imm);
-    return IsValid &&
-           ((IsConstantImm && VK == TricoreMCExpr::VK_Tricore_None) ||
-            VK == TricoreMCExpr::VK_Tricore_LO);
+    return IsConstantImm && isUInt<N>(Imm - P) &&
+           VK == TricoreMCExpr::VK_Tricore_None;
   }
 
+  template <unsigned N, unsigned S = 0> bool isSImm() const {
+    if (!isImm())
+      return false;
+
+    int64_t Imm;
+    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
+    bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
+    return IsConstantImm && isShiftedInt<N, S>(Imm) &&
+           VK == TricoreMCExpr::VK_Tricore_None;
+  }
+
+  bool isUImm4() const { return isUImm<4>(); }
+  bool isUImm8() const { return isUImm<8>(); }
+  bool isUImm16() const { return isUImm<16>(); }
+
   StringRef getToken() const {
-    assert(Kind == k_Token && "Invalid access!");
+    assert(Kind == Token && "Invalid access!");
     return StringRef(Tok.Data, Tok.Length);
   }
 
   const MCExpr *getImm() const {
-    assert((Kind == k_Immediate) && "Invalid access!");
+    assert((Kind == Immediate) && "Invalid access!");
     return Imm.Val;
   }
 
@@ -260,49 +418,298 @@ public:
     const MCExpr *Expr = getImm();
     addExpr(Inst, Expr);
   }
+  void addMemOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
+    Inst.addOperand(MCOperand::createReg(Mem.RegNum));
+    addExpr(Inst, Mem.Off);
+    Inst.setFlags(Mem.Kind);
+  }
 };
 } // namespace
+
+#define GET_REGISTER_MATCHER
+#define GET_SUBTARGET_FEATURE_NAME
+#define GET_MATCHER_IMPLEMENTATION
+#define GET_MNEMONIC_SPELL_CHECKER
+#include "TricoreGenAsmMatcher.inc"
+
+bool TricoreAsmParser::validateInstruction(MCInst &Inst,
+                                           OperandVector &Operands) {
+  return false;
+}
+
+bool TricoreAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
+                                          OperandVector &Operands,
+                                          MCStreamer &Out) {
+
+  return false;
+}
 
 bool TricoreAsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                                OperandVector &Operands,
                                                MCStreamer &Out,
                                                uint64_t &ErrorInfo,
                                                bool MatchingInlineAsm) {
-  assert(false); // FIXME: Implement this.
+  MCInst Inst;
+  FeatureBitset MissingFeatures;
+
+  auto Result = MatchInstructionImpl(Operands, Inst, ErrorInfo, MissingFeatures,
+                                     MatchingInlineAsm);
+  switch (Result) {
+  default:
+    break;
+  case Match_Success:
+    if (validateInstruction(Inst, Operands))
+      return true;
+    return processInstruction(Inst, IDLoc, Operands, Out);
+  case Match_MissingFeature: {
+    assert(MissingFeatures.any() && "Unknown missing features!");
+    bool FirstFeature = true;
+    std::string Msg = "instruction requires the following:";
+    for (unsigned i = 0, e = MissingFeatures.size(); i != e; ++i) {
+      if (MissingFeatures[i]) {
+        Msg += FirstFeature ? " " : ", ";
+        Msg += getSubtargetFeatureName(i);
+        FirstFeature = false;
+      }
+    }
+    return Error(IDLoc, Msg);
+  }
+  case Match_MnemonicFail: {
+    FeatureBitset FBS = ComputeAvailableFeatures(getSTI().getFeatureBits());
+    std::string Suggestion = TricoreMnemonicSpellCheck(
+        ((TricoreOperand &)*Operands[0]).getToken(), FBS, 0);
+    return Error(IDLoc, "unrecognized instruction mnemonic" + Suggestion);
+  }
+  case Match_InvalidOperand: {
+    SMLoc ErrorLoc = IDLoc;
+    if (ErrorInfo != ~0ULL) {
+      if (ErrorInfo >= Operands.size())
+        return Error(ErrorLoc, "too few operands for instruction");
+
+      ErrorLoc = ((TricoreOperand &)*Operands[ErrorInfo]).getStartLoc();
+      if (ErrorLoc == SMLoc())
+        ErrorLoc = IDLoc;
+    }
+    return Error(ErrorLoc, "invalid operand for instruction");
+  }
+  }
+
   return false;
 }
 
 bool TricoreAsmParser::parseRegister(MCRegister &Reg, SMLoc &StartLoc,
                                      SMLoc &EndLoc) {
-  assert(false); // FIXME: Implement this.
+  if (!tryParseRegister(Reg, StartLoc, EndLoc).isSuccess())
+    return Error(StartLoc, "invalid register name");
   return false;
 }
 
 ParseStatus TricoreAsmParser::tryParseRegister(MCRegister &Reg, SMLoc &StartLoc,
                                                SMLoc &EndLoc) {
-  assert(false); // FIXME: Implement this.
-  return ParseStatus::Failure;
+  const AsmToken &Tok = getParser().getTok();
+  StartLoc = Tok.getLoc();
+  EndLoc = Tok.getEndLoc();
+  StringRef Name = getLexer().getTok().getIdentifier();
+
+  Reg = MatchRegisterName(Name);
+  if (!Reg)
+    Reg = MatchRegisterAltName(Name);
+  if (!Reg)
+    return ParseStatus::NoMatch;
+
+  getParser().Lex(); // Eat identifier token.
+  return ParseStatus::Success;
+}
+
+ParseStatus TricoreAsmParser::parseRegister(OperandVector &Operands) {
+  StringRef Name;
+  SMLoc S = getParser().getTok().getLoc();
+
+  if (getParser().parseIdentifier(Name))
+    return ParseStatus::NoMatch;
+
+  MCRegister Reg = MatchRegisterName(Name);
+  if (!Reg)
+    Reg = MatchRegisterAltName(Name);
+  if (!Reg)
+    return ParseStatus::Failure;
+
+  Operands.push_back(
+      TricoreOperand::createReg(Reg, S, S.getFromPointer(Name.end())));
+
+  return ParseStatus::Success;
+}
+
+ParseStatus TricoreAsmParser::parseImmediate(OperandVector &Operands) {
+  SMLoc S = getParser().getTok().getLoc();
+  SMLoc E;
+  const MCExpr *Res;
+
+  switch (getLexer().getKind()) {
+  default:
+    return ParseStatus::NoMatch;
+  case AsmToken::LParen:
+  case AsmToken::Dot:
+  case AsmToken::Minus:
+  case AsmToken::Plus:
+  case AsmToken::Exclaim:
+  case AsmToken::Tilde:
+  case AsmToken::Integer:
+  case AsmToken::String:
+  case AsmToken::Identifier:
+    if (getParser().parseExpression(Res, E))
+      return ParseStatus::Failure;
+    break;
+  case AsmToken::Percent:
+    // return parseOperandWithModifier(Operands);
+    return ParseStatus::Failure;
+  }
+
+  E = getParser().getTok().getEndLoc();
+  Operands.push_back(TricoreOperand::createImm(Res, S, E));
+  return ParseStatus::Success;
+}
+
+ParseStatus TricoreAsmParser::parseMemOperand(OperandVector &Operands) {
+  StringRef Name;
+  MCRegister Reg;
+  TricoreOperand::MemoryKind MemKind = TricoreOperand::Offset;
+  const MCExpr *Off;
+  SMLoc S = getParser().getTok().getLoc();
+  SMLoc E;
+
+  if (!getParser().parseOptionalToken(AsmToken::LBrac))
+    return ParseStatus::NoMatch;
+
+  if (getParser().parseOptionalToken(AsmToken::Plus))
+    MemKind = TricoreOperand::PreInc;
+
+  if (getParser().parseIdentifier(Name))
+    return Error(getTok().getLoc(),
+                 "expected valid identifier for memory register");
+
+  Reg = MatchRegisterName(Name);
+  if (!Reg)
+    Reg = MatchRegisterAltName(Name);
+  if (!Reg)
+    return ParseStatus::Failure;
+
+  if (getTok().is(AsmToken::Plus)) {
+
+    if (MemKind != TricoreOperand::Offset) {
+      return Error(getTok().getLoc(),
+                   "operand can use only one increment modifier");
+    }
+    Lex();
+    MemKind = TricoreOperand::PreInc;
+  }
+
+  if (!getTok().is(AsmToken::RBrac)) {
+    return ParseStatus::Failure;
+  }
+  Lex();
+
+  if (getParser().parseExpression(Off, E))
+    return ParseStatus::Failure;
+
+  Operands.push_back(TricoreOperand::createMemory(Reg, MemKind, Off, S, E));
+
+  return ParseStatus::Success;
+}
+
+bool TricoreAsmParser::parseOperand(OperandVector &Operands,
+                                    StringRef Mnemonic) {
+  ParseStatus Result =
+      MatchOperandParserImpl(Operands, Mnemonic, /*ParseForAllFeatures=*/true);
+  if (Result.isSuccess())
+    return false;
+  if (Result.isFailure())
+    return true;
+
+  // Attempt to parse token as a register.
+  if (parseRegister(Operands).isSuccess())
+    return false;
+
+  // Attempt to parse token as an immediate
+  if (parseImmediate(Operands).isSuccess())
+    return false;
+
+  if (parseMemOperand(Operands).isSuccess())
+    return false;
+
+  Error(getParser().getTok().getLoc(), "unknown operand");
+  return true;
 }
 
 bool TricoreAsmParser::parseInstruction(ParseInstructionInfo &Info,
                                         StringRef Name, SMLoc NameLoc,
                                         OperandVector &Operands) {
-  assert(false); // FIXME: Implement this.
+  // First operand is token for instruction
+  Operands.push_back(TricoreOperand::createToken(Name, NameLoc));
+
+  // If there are no more operands, then finish
+  if (getLexer().is(AsmToken::EndOfStatement)) {
+    getParser().Lex(); // Consume the EndOfStatement.
+    return false;
+  }
+
+  // Parse first operand
+  if (parseOperand(Operands, Name))
+    return true;
+
+  // Parse until end of statement, consuming commas between operands
+  while (parseOptionalToken(AsmToken::Comma)) {
+    // Parse next operand
+    if (parseOperand(Operands, Name))
+      return true;
+  }
+
+  if (getParser().parseEOL("unexpected token")) {
+    getParser().eatToEndOfStatement();
+    return true;
+  }
   return false;
 }
 
 ParseStatus TricoreAsmParser::parseDirective(AsmToken DirectiveID) {
-  assert(false); // FIXME: Implement this.
-  return ParseStatus::Failure;
-}
-unsigned TricoreAsmParser::validateTargetOperandClass(MCParsedAsmOperand &Op,
-                                                      unsigned Kind) {
-  assert(false); // FIXME: Implement this.
-  return 0;
+
+  // Let the MC layer to handle other directives.
+  return ParseStatus::NoMatch;
 }
 
-#define GET_MATCHER_IMPLEMENTATION
-#include "TricoreGenAsmMatcher.inc"
+ParseStatus TricoreAsmParser::parseCallTarget(OperandVector &Operands) {
+  SMLoc S = Parser.getTok().getLoc();
+  SMLoc E = SMLoc::getFromPointer(S.getPointer() - 1);
+
+  switch (getLexer().getKind()) {
+  default:
+    return ParseStatus::NoMatch;
+  case AsmToken::LParen:
+  case AsmToken::Integer:
+  case AsmToken::Identifier:
+  case AsmToken::Dot:
+    break;
+  }
+
+  const MCExpr *DestValue;
+  if (getParser().parseExpression(DestValue))
+    return ParseStatus::NoMatch;
+
+  bool IsPic = getContext().getObjectFileInfo()->isPositionIndependent();
+  TricoreMCExpr::VariantKind Kind = llvm::TricoreMCExpr::VK_Tricore_24REL;
+
+  const MCExpr *DestExpr = TricoreMCExpr::create(Kind, DestValue, getContext());
+  Operands.push_back(TricoreOperand::createImm(DestExpr, S, E));
+  return ParseStatus::Success;
+}
+
+unsigned TricoreAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
+                                                      unsigned Kind) {
+  TricoreOperand &Op = static_cast<TricoreOperand &>(AsmOp);
+
+  return Match_InvalidOperand;
+}
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeTricoreAsmParser() {
   RegisterMCAsmParser<TricoreAsmParser> A(getTheTricoreTarget());
