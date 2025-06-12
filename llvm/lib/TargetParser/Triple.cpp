@@ -249,6 +249,7 @@ StringRef Triple::getArchTypePrefix(ArchType Kind) {
   case dxil:        return "dx";
 
   case xtensa:      return "xtensa";
+  case tricore:     return "tricore";
   }
 }
 
