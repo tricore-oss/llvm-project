@@ -1,4 +1,6 @@
-def CSR_EABI : CalleeSavedRegs<(add (sequence "A%u", 10, 15), (sequence "D%u", 10, 15))>;
+def CSR_EABI : CalleeSavedRegs<(add)> {
+  let OtherPreserved = (add (sequence "D%u", 8, 15), (sequence "A%u", 10, 15));
+}
 
 def RetCC_TricoreEABI : CallingConv<[
   CCIfType<[i32], CCAssignToReg<[D2]>>,
