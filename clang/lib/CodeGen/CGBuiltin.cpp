@@ -55,6 +55,7 @@
 #include "llvm/IR/IntrinsicsR600.h"
 #include "llvm/IR/IntrinsicsRISCV.h"
 #include "llvm/IR/IntrinsicsS390.h"
+#include "llvm/IR/IntrinsicsTricore.h"
 #include "llvm/IR/IntrinsicsWebAssembly.h"
 #include "llvm/IR/IntrinsicsX86.h"
 #include "llvm/IR/MDBuilder.h"
@@ -67,6 +68,7 @@
 #include "llvm/TargetParser/AArch64TargetParser.h"
 #include "llvm/TargetParser/RISCVISAInfo.h"
 #include "llvm/TargetParser/RISCVTargetParser.h"
+#include "llvm/TargetParser/Triple.h"
 #include "llvm/TargetParser/X86TargetParser.h"
 #include <numeric>
 #include <optional>
@@ -6644,6 +6646,8 @@ static Value *EmitTargetArchBuiltinExpr(CodeGenFunction *CGF,
     if (CGF->getTarget().getTriple().getOS() != llvm::Triple::OSType::AMDHSA)
       return nullptr;
     return CGF->EmitAMDGPUBuiltinExpr(BuiltinID, E);
+  case llvm::Triple::tricore:
+    return CGF->EmitTricoreBuiltinExpr(BuiltinID, E, ReturnValue);
   default:
     return nullptr;
   }
@@ -23474,4 +23478,33 @@ Value *CodeGenFunction::EmitRISCVBuiltinExpr(unsigned BuiltinID,
 
   llvm::Function *F = CGM.getIntrinsic(ID, IntrinsicTypes);
   return Builder.CreateCall(F, Ops, "");
+}
+
+Value *CodeGenFunction::EmitTricoreBuiltinExpr(unsigned BuiltinID,
+                                               const CallExpr *E,
+                                               ReturnValueSlot ReturnValue) {
+  SmallVector<Value *, 4> Ops;
+  llvm::Type *ResultType = ConvertType(E->getType());
+
+  // Find out if any arguments are required to be integer constant expressions.
+  unsigned ICEArguments = 0;
+
+  if (BuiltinID == Tricore::BI__builtin_tricore_mtcr) {
+    ICEArguments |= (1 << 0);
+  }
+  for (unsigned i = 0, e = E->getNumArgs(); i != e; i++) {
+    // Handle aggregate argument, namely RVV tuple types in segment load/store
+    if (hasAggregateEvaluationKind(E->getArg(i)->getType())) {
+      LValue L = EmitAggExprToLValue(E->getArg(i));
+      llvm::Value *AggValue = Builder.CreateLoad(L.getAddress());
+      Ops.push_back(AggValue);
+      continue;
+    }
+    Ops.push_back(EmitScalarOrConstFoldImmArg(ICEArguments, i, E));
+  }
+
+  switch (BuiltinID) {
+  default:
+    llvm_unreachable("unexpected builtin ID");
+  }
 }

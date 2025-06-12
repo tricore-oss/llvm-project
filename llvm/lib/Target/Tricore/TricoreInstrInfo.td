@@ -57,6 +57,8 @@ def simm16 : TricoreSImmLeafOp<16>;
 class TricoreUImmLeafOp<int bitsNum>
     : TricoreUImmOp<bitsNum>, ImmLeaf<i32, "return isUInt<"#bitsNum#">(Imm);">;
 def uimm8 : TricoreUImmLeafOp<8>;
+def tuimm16 : TricoreUImmOp<16>, TImmLeaf<i32, "return isUInt<16>(Imm);">;
+
 
 /// Split a 32-bit immediate into two 16 bit parts.
 def hi16 : SDNodeXForm<imm, [{
@@ -181,7 +183,15 @@ let Constraints = "$c = $a" in {
                          "sub.a", "$c, $const8">;
 }
 def : Pat<(sub frameindex:$fi, uimm8:$const8),
-          (SUBA_SC (iPTR (to_tframeindex $fi)), uimm8:$const8)>;
+//===----------------------------------------------------------------------===//
+// Intrinsics
+//===----------------------------------------------------------------------===//
+
+def MTCR : TCInstRLC<0xCD, (outs), (ins tuimm16:$const16, DGPR:$a),
+                     [(int_tricore_mtcr tuimm16:$const16, DGPR:$a)], "mtcr",
+                     "$const16, $a"> {
+  let c = 0;
+}
 
 //===----------------------------------------------------------------------===//
 //  Pattern

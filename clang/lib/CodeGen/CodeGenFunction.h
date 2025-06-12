@@ -4831,6 +4831,9 @@ public:
   llvm::Value *EmitRISCVCpuIs(const CallExpr *E);
   llvm::Value *EmitRISCVCpuIs(StringRef CPUStr);
 
+  // Tricore Buildins
+  llvm::Value *EmitTricoreBuiltinExpr(unsigned BuiltinID, const CallExpr *E, ReturnValueSlot ReturnValue);
+
   void AddAMDGPUFenceAddressSpaceMMRA(llvm::Instruction *Inst,
                                       const CallExpr *E);
   void ProcessOrderScopeAMDGCN(llvm::Value *Order, llvm::Value *Scope,

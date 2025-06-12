@@ -88,6 +88,10 @@ clang_tablegen(BuiltinsSPIRV.inc -gen-clang-builtins
   SOURCE BuiltinsSPIRV.td
   TARGET ClangBuiltinsSPIRV)
 
+clang_tablegen(BuiltinsTricore.inc -gen-clang-builtins
+  SOURCE BuiltinsTricore.td
+  TARGET ClangBuiltinsTricore)
+
 clang_tablegen(BuiltinsX86.inc -gen-clang-builtins
   SOURCE BuiltinsX86.td
   TARGET ClangBuiltinsX86)
