@@ -24,11 +24,10 @@ namespace Tricore {
   enum Fixups {
     fixup_tricore_lo = FirstTargetFixupKind,
     fixup_tricore_hi,
-
-    fixup_tricore_invalid,
+    fixup_tricore_rel24,
     // Marker
-    LastTargetFixupKind,
-    NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
+    fixup_tricore_invalid,
+    NumTargetFixupKinds = fixup_tricore_invalid - FirstTargetFixupKind
   };
 } // namespace Tricore
 } // namespace llvm

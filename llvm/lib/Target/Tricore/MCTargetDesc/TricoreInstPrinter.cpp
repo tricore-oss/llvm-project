@@ -1,4 +1,5 @@
-//===-- TricoreInstPrinter.cpp - Convert Tricore MCInst to assembly syntax ------===//
+//===-- TricoreInstPrinter.cpp - Convert Tricore MCInst to assembly syntax
+//------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -30,7 +31,7 @@ using namespace llvm;
 #include "TricoreGenAsmWriter.inc"
 
 void TricoreInstPrinter::printRegName(raw_ostream &OS, MCRegister Reg) {
-  OS << '%' << getRegisterName(Reg);
+  OS << getRegisterName(Reg);
 }
 
 void TricoreInstPrinter::printInst(const MCInst *MI, uint64_t Address,
@@ -41,8 +42,8 @@ void TricoreInstPrinter::printInst(const MCInst *MI, uint64_t Address,
 }
 
 void TricoreInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                    const MCSubtargetInfo &STI, raw_ostream &O,
-                                    const char *Modifier) {
+                                      const MCSubtargetInfo &STI,
+                                      raw_ostream &O, const char *Modifier) {
   assert((Modifier == nullptr || Modifier[0] == 0) && "No modifiers supported");
   const MCOperand &MO = MI->getOperand(OpNo);
 
@@ -58,4 +59,25 @@ void TricoreInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 
   assert(MO.isExpr() && "Unknown operand kind in printOperand");
   MO.getExpr()->print(O, &MAI);
+}
+
+void TricoreInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo,
+                                         const MCSubtargetInfo &STI,
+                                         raw_ostream &O, const char *Modifier) {
+
+  O << "[";
+  if (MI->getFlags() == 1)
+    O << "+";
+  printOperand(MI, OpNo, STI, O, Modifier);
+  if (MI->getFlags() == 2)
+    O << "+";
+  O << "]";
+  const MCOperand OffsetOp = MI->getOperand(OpNo + 1);
+  if (OffsetOp.isImm()) {
+    if (OffsetOp.getImm() != 0)
+      markup(O, Markup::Immediate) << formatImm(OffsetOp.getImm());
+    return;
+  }
+  assert(OffsetOp.isExpr() && "Unknown operand kind in printOperand");
+  OffsetOp.getExpr()->print(O, &MAI);
 }

@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/TricoreFixupKinds.h"
+#include "TricoreFixupKinds.h"
 #include "TricoreMCExpr.h"
 #include "TricoreMCTargetDesc.h"
 #include "llvm/ADT/SmallVector.h"
@@ -68,25 +69,15 @@ public:
   uint64_t getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
-  unsigned getCallTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                SmallVectorImpl<MCFixup> &Fixups,
-                                const MCSubtargetInfo &STI) const;
-  unsigned getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                  SmallVectorImpl<MCFixup> &Fixups,
-                                  const MCSubtargetInfo &STI) const;
-  unsigned getSImm13OpValue(const MCInst &MI, unsigned OpNo,
-                            SmallVectorImpl<MCFixup> &Fixups,
-                            const MCSubtargetInfo &STI) const;
-  unsigned getBranchPredTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                      SmallVectorImpl<MCFixup> &Fixups,
-                                      const MCSubtargetInfo &STI) const;
-  unsigned getBranchOnRegTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                       SmallVectorImpl<MCFixup> &Fixups,
-                                       const MCSubtargetInfo &STI) const;
-
+  uint64_t getDispImmOpValue(const MCInst &MI, unsigned OpNo,
+                             SmallVectorImpl<MCFixup> &Fixups,
+                             const MCSubtargetInfo &STI) const;
   uint64_t getImmOpValue(const MCInst &MI, unsigned OpNo,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const;
+  uint64_t getMemEncodingBO(const MCInst &MI, unsigned OpNo,
+                            SmallVectorImpl<MCFixup> &Fixups,
+                            const MCSubtargetInfo &STI) const;
 };
 
 } // end anonymous namespace
@@ -130,6 +121,29 @@ TricoreMCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   return 0;
 }
 
+uint64_t
+TricoreMCCodeEmitter::getMemEncodingBO(const MCInst &MI, unsigned OpNo,
+                                       SmallVectorImpl<MCFixup> &Fixups,
+                                       const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  return 0;
+}
+
+uint64_t
+TricoreMCCodeEmitter::getDispImmOpValue(const MCInst &MI, unsigned OpNo,
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+
+  if (MO.isImm()) {
+    uint64_t Res = MO.getImm();
+    assert((Res & 1) == 0 && "LSB is non-zero");
+    return Res >> 1;
+  }
+
+  return getImmOpValue(MI, OpNo, Fixups, STI);
+}
+
 uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
                                              SmallVectorImpl<MCFixup> &Fixups,
                                              const MCSubtargetInfo &STI) const {
@@ -157,11 +171,12 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
       llvm_unreachable("Unhandled fixup kind!");
     case TricoreMCExpr::VK_Tricore_LO:
       FixupKind = Tricore::fixup_tricore_lo;
-      // RelaxCandidate = true;
       break;
     case TricoreMCExpr::VK_Tricore_HI:
       FixupKind = Tricore::fixup_tricore_hi;
-      // RelaxCandidate = true;
+      break;
+    case TricoreMCExpr::VK_Tricore_24REL:
+      FixupKind = Tricore::fixup_tricore_rel24;
       break;
     }
   } else if ((Kind == MCExpr::SymbolRef &&
@@ -178,16 +193,7 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
       MCFixup::create(0, Expr, MCFixupKind(FixupKind), MI.getLoc()));
   ++MCNumFixups;
 
-  // // Ensure an R_Tricore_RELAX relocation will be emitted if linker relaxation
-  // is
-  // // enabled and the current fixup will result in a relocation that may be
-  // // relaxed.
-  // if (EnableRelax && RelaxCandidate) {
-  //   const MCConstantExpr *Dummy = MCConstantExpr::create(0, Ctx);
-  //   Fixups.push_back(MCFixup::create(
-  //       0, Dummy, MCFixupKind(Tricore::fixup_riscv_relax), MI.getLoc()));
-  //   ++MCNumFixups;
-  // }
+  // TODO: Relax
 
   return 0;
 }

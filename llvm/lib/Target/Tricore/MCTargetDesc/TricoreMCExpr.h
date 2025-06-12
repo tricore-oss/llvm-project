@@ -24,6 +24,10 @@ class TricoreMCExpr : public MCTargetExpr {
 public:
   enum VariantKind {
     VK_Tricore_None,
+    VK_Tricore_32REL,
+    VK_Tricore_32ABS,
+    VK_Tricore_24REL,
+    VK_Tricore_24ABS,
     VK_Tricore_LO,
     VK_Tricore_HI,
 

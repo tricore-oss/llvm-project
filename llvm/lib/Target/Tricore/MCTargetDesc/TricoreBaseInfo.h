@@ -21,9 +21,8 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/TargetParser/SubtargetFeature.h"
-//#include "llvm/TargetParser/TricoreISAInfo.h"
-//#include "llvm/TargetParser/TricoreTargetParser.h"
-
+// #include "llvm/TargetParser/TricoreISAInfo.h"
+// #include "llvm/TargetParser/TricoreTargetParser.h"
 
 namespace llvm {
 namespace TricoreOp {
@@ -31,8 +30,60 @@ enum OperandType : unsigned {
   OPERAND_FIRST_Tricore_IMM = MCOI::OPERAND_FIRST_TARGET,
   OPERAND_SIMM10 = OPERAND_FIRST_Tricore_IMM,
   OPERAND_SIMM16,
+  OPERAND_UIMM4,
   OPERAND_UIMM8,
+  OPERAND_UIMM16,
+  OPERAND_DISP24,
+  OPERAND_DISP15,
+  OPERAND_DISP8,
+  OPERAND_DISP4,
 };
 }
+namespace TricoreII {
+enum {
+  InstFormatPseudo = 0,
+  InstFormatABS = 1,
+  InstFormatABSB = 2,
+  InstFormatB = 3,
+  InstFormatBIT = 4,
+  InstFormatBO = 5,
+  InstFormatBOL = 6,
+  InstFormatBRC = 7,
+  InstFormatBRN = 8,
+  InstFormatBRR = 9,
+  InstFormatRC = 10,
+  InstFormatRCPW = 11,
+  InstFormatRCR = 12,
+  InstFormatRCRR = 13,
+  InstFormatRCRW = 14,
+  InstFormatRLC = 15,
+  InstFormatRR = 16,
+  InstFormatRR1 = 17,
+  InstFormatRR2 = 18,
+  InstFormatRRPW = 19,
+  InstFormatRRR = 20,
+  InstFormatRRR1 = 21,
+  InstFormatRRR2 = 22,
+  InstFormatRRRR = 23,
+  InstFormatRRRW = 24,
+  InstFormatSYS = 25,
+  InstFormatSC = 26,
+
+  InstFormatMask = 31,
+  InstFormatShift = 0,
+};
+
+enum {
+  MO_None = 0,
+  MO_CALL = 1,
+  MO_LO = 3,
+  MO_HI = 4,
+};
+// Helper functions to read TSFlags.
+/// \returns the format of the instruction.
+static inline unsigned getFormat(uint64_t TSFlags) {
+  return (TSFlags & InstFormatMask) >> InstFormatShift;
+}
+} // namespace TricoreII
 } // namespace llvm
 #endif

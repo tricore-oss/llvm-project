@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/TricoreBaseInfo.h"
 #include "MCTargetDesc/TricoreInstPrinter.h"
 #include "MCTargetDesc/TricoreMCExpr.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
@@ -152,6 +153,33 @@ bool TricoreAsmPrinter::lowerToMCInst(const MachineInstr *MI, MCInst &OutMI) {
   return false;
 }
 
+static MCOperand lowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym,
+                                    const AsmPrinter &AP) {
+  MCContext &Ctx = AP.OutContext;
+  TricoreMCExpr::VariantKind Kind;
+
+  switch (MO.getTargetFlags()) {
+  default:
+    llvm_unreachable("Unknown target flag on GV operand");
+  case TricoreII::MO_None:
+    Kind = TricoreMCExpr::VK_Tricore_None;
+    break;
+  case TricoreII::MO_CALL:
+    Kind = TricoreMCExpr::VK_Tricore_24REL;
+    break;
+  }
+  const MCExpr *ME =
+      MCSymbolRefExpr::create(Sym, MCSymbolRefExpr::VK_None, Ctx);
+
+  if (!MO.isJTI() && !MO.isMBB() && MO.getOffset())
+    ME = MCBinaryExpr::createAdd(
+        ME, MCConstantExpr::create(MO.getOffset(), Ctx), Ctx);
+
+  if (Kind != TricoreMCExpr::VK_Tricore_None)
+    ME = TricoreMCExpr::create(Kind, ME, Ctx);
+  return MCOperand::createExpr(ME);
+}
+
 bool TricoreAsmPrinter::lowerOperand(const MachineOperand &MO,
                                      MCOperand &MCOp) const {
   switch (MO.getType()) {
@@ -166,6 +194,9 @@ bool TricoreAsmPrinter::lowerOperand(const MachineOperand &MO,
     return false;
   case MachineOperand::MO_Immediate:
     MCOp = MCOperand::createImm(MO.getImm());
+    break;
+  case MachineOperand::MO_GlobalAddress:
+    MCOp = lowerSymbolOperand(MO, getSymbolPreferLocal(*MO.getGlobal()), *this);
     break;
   default:
     report_fatal_error("lowerOperand: unknown operand type");

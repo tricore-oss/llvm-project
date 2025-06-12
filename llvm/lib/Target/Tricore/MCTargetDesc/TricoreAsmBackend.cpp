@@ -15,6 +15,7 @@
 #include "MCTargetDesc/TricoreAsmBackend.h"
 #include "MCTargetDesc/TricoreFixupKinds.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
+#include "TricoreFixupKinds.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
@@ -42,6 +43,13 @@ public:
                   const MCValue &Target, MutableArrayRef<char> Data,
                   uint64_t Value, bool IsResolved,
                   const MCSubtargetInfo *STI) const override {
+    MCFixupKind Kind = Fixup.getKind();
+    if (Kind >= FirstLiteralRelocationKind)
+      return;
+    MCContext &Ctx = Asm.getContext();
+    MCFixupKindInfo Info = getFixupKindInfo(Kind);
+    if (!Value)
+      return;      // Doesn't change encoding.
     assert(false); // TODO: Implement this function
   }
 
@@ -54,12 +62,44 @@ public:
 
 std::optional<MCFixupKind>
 TricoreAsmBackend::getFixupKind(StringRef Name) const {
-  assert(false);
+  if (STI.getTargetTriple().isOSBinFormatELF()) {
+    unsigned Type;
+    Type = llvm::StringSwitch<unsigned>(Name)
+#define ELF_RELOC(NAME, ID) .Case(#NAME, ID)
+#include "llvm/BinaryFormat/ELFRelocs/Tricore.def"
+#undef ELF_RELOC
+               .Default(-1u);
+    if (Type != -1u)
+      return static_cast<MCFixupKind>(FirstLiteralRelocationKind + Type);
+  }
+  return std::nullopt;
 }
 
 const MCFixupKindInfo &
 TricoreAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
-  assert(false);
+  const static MCFixupKindInfo Infos[] = {
+      // This table *must* be in the order that the fixup_* kinds are defined in
+      // TricoreFixupKinds.h.
+      //
+      // name                      offset bits  flags
+      {"fixup_tricore_lo", 0, 16, 0},
+      {"fixup_tricore_hi", 16, 16, 0},
+      {"fixup_tricore_rel24", 0, 25, MCFixupKindInfo::FKF_IsPCRel},
+  };
+  static_assert((std::size(Infos)) == Tricore::NumTargetFixupKinds,
+                "Not all fixup kinds added to Infos array");
+
+  // Fixup kinds from .reloc directive are like R_RISCV_NONE. They
+  // do not require any extra processing.
+  if (Kind >= FirstLiteralRelocationKind)
+    return MCAsmBackend::getFixupKindInfo(FK_NONE);
+
+  if (Kind < FirstTargetFixupKind)
+    return MCAsmBackend::getFixupKindInfo(Kind);
+
+  assert(unsigned(Kind - FirstTargetFixupKind) < getNumFixupKinds() &&
+         "Invalid kind!");
+  return Infos[Kind - FirstTargetFixupKind];
 }
 
 bool TricoreAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,

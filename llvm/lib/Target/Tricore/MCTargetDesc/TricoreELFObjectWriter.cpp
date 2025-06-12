@@ -10,6 +10,8 @@
 #include "MCTargetDesc/TricoreFixupKinds.h"
 #include "MCTargetDesc/TricoreMCExpr.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
+#include "TricoreFixupKinds.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCObjectWriter.h"
@@ -40,7 +42,19 @@ unsigned TricoreELFObjectWriter::getRelocType(MCContext &Ctx,
                                               const MCValue &Target,
                                               const MCFixup &Fixup,
                                               bool IsPCRel) const {
-  assert(false);
+  const MCExpr *Expr = Fixup.getValue();
+  // Determine the type of the relocation
+  unsigned Kind = Fixup.getTargetKind();
+  if (Kind >= FirstLiteralRelocationKind)
+    return Kind - FirstLiteralRelocationKind;
+  if (IsPCRel) {
+    switch (Fixup.getTargetKind()) {
+    default:
+      llvm_unreachable("Unimplemented fixup -> relocation");
+    case Tricore::fixup_tricore_rel24:
+      return ELF::R_TRICORE_24REL;
+    }
+  }
   return 0;
 }
 

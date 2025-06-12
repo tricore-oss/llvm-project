@@ -24,10 +24,9 @@ using namespace llvm;
 
 #define DEBUG_TYPE "sparcmcexpr"
 
-const TricoreMCExpr*
-TricoreMCExpr::create(VariantKind Kind, const MCExpr *Expr,
-                      MCContext &Ctx) {
-    return new (Ctx) TricoreMCExpr(Kind, Expr);
+const TricoreMCExpr *TricoreMCExpr::create(VariantKind Kind, const MCExpr *Expr,
+                                           MCContext &Ctx) {
+  return new (Ctx) TricoreMCExpr(Kind, Expr);
 }
 
 void TricoreMCExpr::printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const {
@@ -41,18 +40,24 @@ void TricoreMCExpr::printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const {
     OS << ')';
 }
 
-bool TricoreMCExpr::printVariantKind(raw_ostream &OS, VariantKind Kind)
-{
+bool TricoreMCExpr::printVariantKind(raw_ostream &OS, VariantKind Kind) {
   switch (Kind) {
-  case VK_Tricore_None:     return false;
-  case VK_Tricore_LO:       OS << "%lo(";  return true;
-  case VK_Tricore_HI:       OS << "%hi(";  return true;
+  case VK_Tricore_None:
+    return false;
+  case VK_Tricore_24REL:
+    return false;
+  case VK_Tricore_LO:
+    OS << "%lo(";
+    return true;
+  case VK_Tricore_HI:
+    OS << "%hi(";
+    return true;
+  default:
+    llvm_unreachable("Unhandled TricoreMCExpr::VariantKind");
   }
-  llvm_unreachable("Unhandled TricoreMCExpr::VariantKind");
 }
 
-TricoreMCExpr::VariantKind TricoreMCExpr::parseVariantKind(StringRef name)
-{
+TricoreMCExpr::VariantKind TricoreMCExpr::parseVariantKind(StringRef name) {
   return StringSwitch<TricoreMCExpr::VariantKind>(name)
       .Case("lo", VK_Tricore_LO)
       .Case("hi", VK_Tricore_HI)
@@ -61,15 +66,18 @@ TricoreMCExpr::VariantKind TricoreMCExpr::parseVariantKind(StringRef name)
 
 Tricore::Fixups TricoreMCExpr::getFixupKind(TricoreMCExpr::VariantKind Kind) {
   switch (Kind) {
-  default: llvm_unreachable("Unhandled TricoreMCExpr::VariantKind");
-  case VK_Tricore_LO:       return Tricore::fixup_tricore_lo;
-  case VK_Tricore_HI:       return Tricore::fixup_tricore_hi;
+  default:
+    llvm_unreachable("Unhandled TricoreMCExpr::VariantKind");
+  case VK_Tricore_LO:
+    return Tricore::fixup_tricore_lo;
+  case VK_Tricore_HI:
+    return Tricore::fixup_tricore_hi;
   }
 }
 
 bool TricoreMCExpr::evaluateAsRelocatableImpl(MCValue &Res,
-                                            const MCAssembler *Asm,
-                                            const MCFixup *Fixup) const {
+                                              const MCAssembler *Asm,
+                                              const MCFixup *Fixup) const {
   return getSubExpr()->evaluateAsRelocatable(Res, Asm, Fixup);
 }
 
@@ -100,7 +108,9 @@ int64_t TricoreMCExpr::evaluateAsInt64(int64_t Value) const {
   case VK_Tricore_HI:
     return SignExtend64<16>(Value);
   case VK_Tricore_LO:
-  
+
     return (Value >> 16) & 0xffff;
   }
 }
+
+void TricoreMCExpr::fixELFSymbolsInTLSFixups(MCAssembler &Asm) const {}
