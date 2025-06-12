@@ -1,4 +1,5 @@
-//===- TricoreInstrInfo.h - Tricore Instruction Information -----------*- C++ -*-===//
+//===- TricoreInstrInfo.h - Tricore Instruction Information -----------*- C++
+//-*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,7 +12,8 @@
 // FIXME: We need to override TargetInstrInfo::getInlineAsmLength method in
 // order for TricoreLongBranch pass to work correctly when the code has inline
 // assembly.  The returned value doesn't have to be the asm instruction's exact
-// size in bytes; TricoreLongBranch only expects it to be the correct upper bound.
+// size in bytes; TricoreLongBranch only expects it to be the correct upper
+// bound.
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_LIB_TARGET_TRICORE_TRICOREINSTRINFO_H
@@ -44,7 +46,6 @@ class TricoreInstrInfo : public TricoreGenInstrInfo {
   virtual void anchor();
 
 protected:
-
 public:
   explicit TricoreInstrInfo(TricoreSubtarget &ST);
 
@@ -55,8 +56,12 @@ public:
   /// always be able to get register info as well (through this method).
   ///
   const TricoreRegisterInfo &getRegisterInfo() const { return RI; }
-};
 
+  void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+                   const DebugLoc &DL, MCRegister DestReg, MCRegister SrcReg,
+                   bool KillSrc, bool RenamableDest = false,
+                   bool RenamableSrc = false) const override;
+};
 
 } // end namespace llvm
 

@@ -13,6 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "TricoreRegisterInfo.h"
+#include "MCTargetDesc/TricoreBaseInfo.h"
+#include "MCTargetDesc/TricoreMCTargetDesc.h"
 #include "Tricore.h"
 #include "TricoreMachineFunctionInfo.h"
 #include "TricoreSubtarget.h"
@@ -89,6 +91,16 @@ bool TricoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   if (!isInt<32>(Offset.getFixed())) {
     report_fatal_error(
         "Frame offsets outside of the signed 32-bit range not supported");
+  }
+
+  if (TricoreII::getFormat(MI.getDesc().TSFlags) == TricoreII::InstFormatBO) {
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
+    if (isInt<12>(Offset.getFixed())) {
+      MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset.getFixed());
+    } else {
+      report_fatal_error(
+          "Frame offsets outside of the signed 12-bit range not supported");
+    }
   }
 
   return false;

@@ -11,12 +11,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/TricoreMCTargetDesc.h"
 #include "TricoreTargetMachine.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGenTypes/MachineValueType.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "tricore-isel"
@@ -76,6 +79,23 @@ void TricoreDAGToDAGISel::Select(SDNode *N) {
   }
 
   switch (N->getOpcode()) {
+  // case ISD::STORE: {
+  //   EVT ty = N->getOperand(1).getValueType();
+  //   EVT ty1 = N->getOperand(0).getValueType();
+
+  //   N->dump(CurDAG);
+  //   for (auto a = N->op_begin(); a != N->op_end(); ++a) {
+  //     a->getNode()->dump(CurDAG);
+  //   }
+  //   break;
+  // }
+  case ISD::Constant: {
+    // SDValue Ops[] = {CurDAG->getRegister(0, MVT::i32), CurDAG->getEntryNode()};
+    // SDNode *ResNode =
+    //     CurDAG->getMachineNode(Tricore::MOV_RLC, dl, MVT::i32, MVT::Other, Ops);
+    // ReplaceNode(N, ResNode);
+    // return;
+  }
   default:
     break;
   }
@@ -96,13 +116,16 @@ bool TricoreDAGToDAGISel::SelectAddrFrameIndex(SDValue Addr, SDValue &Base,
 
 bool TricoreDAGToDAGISel::SelectAddrRegImm(SDValue Addr, SDValue &Base,
                                            SDValue &Offset) {
-  if (SelectAddrFrameIndex(Addr, Base, Offset))
-    return true;
-
   SDLoc DL(Addr);
   MVT VT = Addr.getSimpleValueType();
 
-  return false;
+  if (SelectAddrFrameIndex(Addr, Base, Offset))
+    return true;
+
+  Base = Addr;
+  Offset = CurDAG->getTargetConstant(0, DL, VT);
+
+  return true;
 }
 
 /// createTricoreISelDag - This pass converts a legalized DAG into a

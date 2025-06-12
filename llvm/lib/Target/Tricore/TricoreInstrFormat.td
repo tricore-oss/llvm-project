@@ -12,7 +12,7 @@
 // Format specifies the encoding used by the instruction. This is used by
 // TricoreMCCodeEmitter to determine which form of fixup to use. These
 // definitions must be kept in-sync with TricoreBaseInfo.h.
-class InstFormat<bits<5> val> { bits<5> Value = val; }
+class InstFormat<bits<6> val> { bits<6> Value = val; }
 def InstFormatPseudo : InstFormat<0>;
 def InstFormatABS : InstFormat<1>;
 def InstFormatABSB : InstFormat<2>;
@@ -39,7 +39,20 @@ def InstFormatRRR2 : InstFormat<22>;
 def InstFormatRRRR : InstFormat<23>;
 def InstFormatRRRW : InstFormat<24>;
 def InstFormatSYS : InstFormat<25>;
-def InstFormatSC : InstFormat<26>;
+def InstFormatSB : InstFormat<26>;
+def InstFormatSBC : InstFormat<27>;
+def InstFormatSBR : InstFormat<28>;
+def InstFormatSBRN : InstFormat<29>;
+def InstFormatSC : InstFormat<30>;
+def InstFormatSLR : InstFormat<31>;
+def InstFormatSLRO : InstFormat<32>;
+def InstFormatSR : InstFormat<33>;
+def InstFormatSRC : InstFormat<34>;
+def InstFormatSRO : InstFormat<35>;
+def InstFormatSRR : InstFormat<36>;
+def InstFormatSRRS : InstFormat<37>;
+def InstFormatSSR : InstFormat<38>;
+def InstFormatSSRO : InstFormat<39>;
 
 class TCInstCommon<dag outs, dag ins, string opcodestr, string argstr,
                    list<dag> pattern, InstFormat format> : Instruction {
@@ -50,7 +63,7 @@ class TCInstCommon<dag outs, dag ins, string opcodestr, string argstr,
   let AsmString = opcodestr#!if(!empty(argstr), "", "\t"#argstr);
   let Pattern = pattern;
 
-  let TSFlags{4 -0} = format.Value;
+  let TSFlags{5 - 0} = format.Value;
 }
 
 class TCInst16<dag outs, dag ins, string opcodestr, string argstr,
@@ -80,6 +93,49 @@ class Pseudo<dag outs, dag ins, list<dag> pattern, string opcodestr = "",
   let isPseudo = 1;
 }
 
+//------------------------------------------------------------------------------
+// 32 Bit instructions
+//------------------------------------------------------------------------------
+
+class TCInstB<bits<8> op1, dag outs, dag ins, list<dag> pattern,
+               string opcodestr, string argstr = "">
+    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatRR> {
+  bits<24> disp24;
+
+  let Inst{31 - 16} = disp24{15 - 0};
+  let Inst{15 - 8} = disp24{7 - 0};
+  let Inst{7 -0} = op1;
+}
+
+class TCInstBOL<bits<8> op1, dag outs, dag ins, list<dag> pattern,
+               string opcodestr, string argstr = "">
+    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatRR> {
+  bits<4> a;
+  bits<4> b;
+  bits<16> off16;
+
+  let Inst{31 - 28} = off16{9 - 6};
+  let Inst{27 - 22} = off16{15 - 10};
+  let Inst{21 - 16} = off16{5 - 0};
+  let Inst{15 - 12} = b;
+  let Inst{11 - 8} = a;
+  let Inst{7 -0} = op1;
+}
+
+class TCInstRR<bits<8> op1, bits<8> op2, dag outs, dag ins, list<dag> pattern,
+               string opcodestr, string argstr = "">
+    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatRR> {
+  bits<4> a;
+  bits<4> b;
+  bits<4> c;
+
+  let Inst{31 - 28} = c;
+  let Inst{27 - 20} = op2;
+  let Inst{15 -12} = b;
+  let Inst{11 -8} = a;
+  let Inst{7 -0} = op1;
+}
+
 class TCInstSYS<bits<8> op1, bits<6> op2, dag outs, dag ins, list<dag> pattern,
                 string opcodestr, string argstr = "">
     : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatSYS> {
@@ -94,10 +150,12 @@ class TCInstRLC<bits<8> op1, dag outs, dag ins, list<dag> pattern,
                 string opcodestr, string argstr = "">
     : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatSYS> {
   bits<4> c;
-  bits<16> imm;
+  bits<4> a;
+  bits<16> const16;
 
   let Inst{31 - 28} = c;
-  let Inst{27 - 12} = imm;
+  let Inst{27 - 12} = const16;
+  let Inst{11 - 8} = a;
   let Inst{7 - 0} = op1;
 }
 
@@ -118,7 +176,7 @@ class TCInstABS<bits<8> op1, dag outs, dag ins, list<dag> pattern,
 
 class TCInstBO<bits<8> op1, bits<6> op2, dag outs, dag ins, list<dag> pattern,
                string opcodestr, string argstr = "">
-    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatABS> {
+    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatBO> {
   bits<4> a;
   bits<4> b;
   bits<10> imm;
@@ -131,11 +189,38 @@ class TCInstBO<bits<8> op1, bits<6> op2, dag outs, dag ins, list<dag> pattern,
   let Inst{7 - 0} = op1;
 }
 
+//------------------------------------------------------------------------------
+// 16bit instructions
+//------------------------------------------------------------------------------
+
 class TCInstSC<bits<8> op1, dag outs, dag ins, list<dag> pattern,
                string opcodestr, string argstr = "">
     : TCInst16<outs, ins, opcodestr, argstr, pattern, InstFormatSC> {
   bits<8> const8;
 
   let Inst{15 - 8} = const8;
+  let Inst{7 - 0} = op1;
+}
+
+class TCInstSRC<bits<8> op1, dag outs, dag ins, list<dag> pattern,
+                string opcodestr, string argstr = "">
+    : TCInst16<outs, ins, opcodestr, argstr, pattern, InstFormatSRC> {
+  bits<4> a;
+  bits<4> const4;
+
+  let Inst{15 - 12} = const4;
+  let Inst{11 - 8} = a;
+  let Inst{7 - 0} = op1;
+}
+
+
+class TCInstSRR<bits<8> op1, dag outs, dag ins, list<dag> pattern,
+                string opcodestr, string argstr = "">
+    : TCInst16<outs, ins, opcodestr, argstr, pattern, InstFormatSRR> {
+  bits<4> a;
+  bits<4> b;
+
+  let Inst{15 - 12} = b;
+  let Inst{11 - 8} = a;
   let Inst{7 - 0} = op1;
 }
