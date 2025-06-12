@@ -15,7 +15,8 @@ let Namespace = "Tricore" in {
   def sub_odd : SubRegIndex<32, 32>;
 }
 
-class TricoreReg<bits<16> Enc, string n, list<string> altNames = []> : Register<n, altNames> {
+class TricoreReg<bits<16> Enc, string n, list<string> altNames = []>
+    : Register<n, altNames> {
   let HWEncoding = Enc;
   let Namespace = "Tricore";
 }
@@ -37,11 +38,10 @@ class TricoreProcStateReg<bits<16> Enc, string n> : Register<n> {
 class TricoreDataReg<bits<16> Enc, string n> : TricoreReg<Enc, n>;
 class TricoreExtDataReg<bits<16> Enc, string n, list<Register> subregs>
     : TricoreRegWithSubRegs<Enc, n, subregs>;
-class TricoreAddrReg<bits<16> Enc, string n, list<string> altNames = []> : TricoreReg<Enc, n, altNames>;
+class TricoreAddrReg<bits<16> Enc, string n, list<string> altNames = []>
+    : TricoreReg<Enc, n, altNames>;
 class TricoreExtAddrReg<bits<16> Enc, string n, list<Register> subregs>
     : TricoreRegWithSubRegs<Enc, n, subregs>;
-
-
 
 //===----------------------------------------------------------------------===//
 //  Registers
@@ -104,12 +104,15 @@ def P12 : TricoreExtAddrReg<28, "p12", [A12, A13]>, DwarfRegNum<[28]>;
 def P14 : TricoreExtAddrReg<30, "p14", [A14, A15]>, DwarfRegNum<[30]>;
 
 // Programm state registers
-def PC : TricoreProcStateReg<8, "pc">; 
+def PC : TricoreProcStateReg<8, "pc">;
 def PSW : TricoreProcStateReg<4, "psw">;
 def PCXI : TricoreProcStateReg<0, "pcxi">;
 
-def DGPR : RegisterClass<"Tricore", [i8, i16, i32, f32], 32,
-                             (sequence "D%u", 0, 15)>;
-def AGPR : RegisterClass<"Tricore", [i32], 32, (sequence "A%u", 0, 15)>;
+def DGPR
+    : RegisterClass<"Tricore", [i8, i16, i32, f32], 32,
+                    (add D15, (sequence "D%u", 8, 14), (sequence "D%u", 0, 7))>;
+def AGPR : RegisterClass<"Tricore", [i32], 32,
+                         (add A15, (sequence "A%u", 12, 14),
+                             (sequence "A%u", 4, 7), (sequence "A%u", 8, 11), A1, A0)>;
 def EGPR : RegisterClass<"Tricore", [i64, f64], 64, (sequence "E%u", 0, 15, 2)>;
-def PGPR : RegisterClass<"Tricore", [i64], 64, (sequence "P%u", 0, 15, 2)>;
+def PGPR : RegisterClass<"Tricore", [i64], 64, (sequence "P%u", 0, 15, 2)>; 

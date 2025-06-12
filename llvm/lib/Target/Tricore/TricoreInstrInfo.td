@@ -1,9 +1,8 @@
 include "TricoreInstrFormat.td"
 
 //===----------------------------------------------------------------------===//
-// Instruction Pattern Stuff
+// Operands
 //===----------------------------------------------------------------------===//
-
 class ImmAsmOperand<string prefix, int width, string suffix> : AsmOperandClass {
   let Name = prefix#"Imm"#width#suffix;
   let RenderMethod = "addImmOperands";
@@ -14,6 +13,14 @@ class SImmAsmOperand<int width, string suffix = "">
 
 class UImmAsmOperand<int width, string suffix = "">
     : ImmAsmOperand<"U", width, suffix> {}
+
+class DispImmAsmOperand<int width> : AsmOperandClass {
+  let Name = "Disp"#width;
+  let RenderMethod = "addImmOperands";
+  let ParserMethod = "parseCallTarget";
+  let PredicateMethod = "isDisp<"#width#">";
+  let DiagnosticType = !strconcat("Invalid", Name);
+}
 
 class TricoreOp<ValueType vt> : Operand<vt> {
   let OperandNamespace = "TricoreOp";
@@ -45,6 +52,19 @@ class TricoreUImmOp<int bitsNum> : TricoreOp<i32> {
   }];
 }
 
+class TricoreDispImmOp<int bitsNum> : TricoreOp<i32> {
+  let ParserMatchClass = DispImmAsmOperand<bitsNum>;
+  let EncoderMethod = "getDispImmOpValue";
+  let DecoderMethod = "decodeDispImmOperand<"#bitsNum#">";
+  let OperandType = "OPERAND_DISP"#bitsNum;
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (!MCOp.evaluateAsConstantImm(Imm))
+      return false;
+    return isShiftedInt<}]#bitsNum#[{, 1>(Imm);
+  }];
+}
+
 class TricoreSImmLeafOp<int bitsNum>
     : TricoreSImmOp<bitsNum>, ImmLeaf<i32, "return isInt<"#bitsNum#">(Imm);">;
 // def simm4 : TricoreSImmLeafOp<4>;
@@ -56,8 +76,32 @@ def simm16 : TricoreSImmLeafOp<16>;
 
 class TricoreUImmLeafOp<int bitsNum>
     : TricoreUImmOp<bitsNum>, ImmLeaf<i32, "return isUInt<"#bitsNum#">(Imm);">;
+def uimm4 : TricoreUImmLeafOp<4>;
 def uimm8 : TricoreUImmLeafOp<8>;
+def uimm16 : TricoreUImmLeafOp<16>;
+
 def tuimm16 : TricoreUImmOp<16>, TImmLeaf<i32, "return isUInt<16>(Imm);">;
+
+class TricoreDispImmLeafOp<int bitsNum>
+    : TricoreDispImmOp<bitsNum>,
+      ImmLeaf<i32, "return isShiftedInt<"#bitsNum#", 1>(Imm);">;
+
+def disp24 : TricoreDispImmLeafOp<24>;
+
+def MemBOAsmOperand : AsmOperandClass {
+  let Name = "MemBO";
+  let RenderMethod = "addMemOperands";
+  let ParserMethod = "parseMemOperand";
+  let PredicateMethod = "isMemWithSimmOffset<10>";
+  let DiagnosticType = "InvalidMemBO";
+}
+
+def MemBO : Operand<i32> {
+  let PrintMethod = "printMemOperand";
+  let MIOperandInfo = (ops AGPR, simm10);
+  let ParserMatchClass = MemBOAsmOperand;
+  let OperandType = "OPERAND_MEMORY";
+}
 
 
 /// Split a 32-bit immediate into two 16 bit parts.

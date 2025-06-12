@@ -6,7 +6,7 @@ tablegen(LLVM TricoreGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM TricoreGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM TricoreGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM TricoreGenDAGISel.inc -gen-dag-isel)
-#tablegen(LLVM TricoreGenDisassemblerTables.inc -gen-disassembler)
+tablegen(LLVM TricoreGenDisassemblerTables.inc -gen-disassembler)
 #tablegen(LLVM TricoreGenFastISel.inc -gen-fast-isel)
 #tablegen(LLVM TricoreGenGlobalISel.inc -gen-global-isel)
 #tablegen(LLVM TricoreGenPostLegalizeGICombiner.inc -gen-global-isel-combiner

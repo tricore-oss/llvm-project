@@ -46,6 +46,7 @@ def TricoreInstrInfo : InstrInfo {
 def TC16 : ProcessorModel<"tc16", NoSchedModel, [FeatureFloat32]>;
 
 def TricoreAsmParser : AsmParser {
+  let ShouldEmitMatchRegisterAltName = 1;
 }
 
 
