@@ -30,6 +30,7 @@
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "lld/Common/ErrorHandler.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Object/ELF.h"
 
 using namespace llvm;
@@ -83,6 +84,8 @@ void elf::setTarget(Ctx &ctx) {
     return setSystemZTargetInfo(ctx);
   case EM_X86_64:
     return setX86_64TargetInfo(ctx);
+  case EM_TRICORE:
+   return setTricoreTargetInfo(ctx);
   default:
     Fatal(ctx) << "unsupported e_machine value: " << ctx.arg.emachine;
   }

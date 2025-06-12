@@ -1027,14 +1027,14 @@ enum : unsigned {
   // (commit hash 296de4def055c871809068e0816325a4ac04eb12)
 
   // Base ABI Modifiers
-  EF_LOONGARCH_ABI_SOFT_FLOAT    = 0x1,
-  EF_LOONGARCH_ABI_SINGLE_FLOAT  = 0x2,
-  EF_LOONGARCH_ABI_DOUBLE_FLOAT  = 0x3,
+  EF_LOONGARCH_ABI_SOFT_FLOAT = 0x1,
+  EF_LOONGARCH_ABI_SINGLE_FLOAT = 0x2,
+  EF_LOONGARCH_ABI_DOUBLE_FLOAT = 0x3,
   EF_LOONGARCH_ABI_MODIFIER_MASK = 0x7,
 
   // Object file ABI versions
-  EF_LOONGARCH_OBJABI_V0   = 0x0,
-  EF_LOONGARCH_OBJABI_V1   = 0x40,
+  EF_LOONGARCH_OBJABI_V0 = 0x0,
+  EF_LOONGARCH_OBJABI_V1 = 0x40,
   EF_LOONGARCH_OBJABI_MASK = 0xC0,
 };
 
@@ -1056,6 +1056,21 @@ enum : unsigned {
 // ELF Relocation types for Xtensa
 enum {
 #include "ELFRelocs/Xtensa.def"
+};
+
+// Tricore specific e_flags
+enum : unsigned {
+  EF_TRICORE_V1_1 = 0x80000000,
+  EF_TRICORE_V1_2 = 0x40000000,
+  EF_TRICORE_V1_3 = 0x20000000,
+  EF_TRICORE_V1_6 = 0x80000000,
+  EF_TRICORE_PCP2 = 0x02000000,
+  EF_TRICORE_V1_8 = 0x80000000,
+};
+
+// ELF Relocation types for Xtensa
+enum {
+#include "ELFRelocs/Tricore.def"
 };
 
 #undef ELF_RELOC
@@ -1300,7 +1315,11 @@ enum : unsigned {
   SHF_MIPS_STRING = 0x80000000,
 
   // Make code section unreadable when in execute-only mode
-  SHF_ARM_PURECODE = 0x20000000
+  SHF_ARM_PURECODE = 0x20000000,
+
+  SHF_TRICORE_ABS = 0x400,
+  SHF_TRICORE_NOREAD = 0x800
+
 };
 
 // Section Group Flags
