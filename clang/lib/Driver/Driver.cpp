@@ -47,6 +47,7 @@
 #include "ToolChains/SYCL.h"
 #include "ToolChains/Solaris.h"
 #include "ToolChains/TCE.h"
+#include "ToolChains/Tricore.h"
 #include "ToolChains/UEFI.h"
 #include "ToolChains/VEToolchain.h"
 #include "ToolChains/WebAssembly.h"
@@ -6775,6 +6776,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         break;
       case llvm::Triple::csky:
         TC = std::make_unique<toolchains::CSKYToolChain>(*this, Target, Args);
+        break;
+      case llvm::Triple::tricore:
+        TC = std::make_unique<toolchains::TricoreToolChain>(*this, Target, Args);
         break;
       default:
         if (toolchains::BareMetal::handlesTarget(Target))
