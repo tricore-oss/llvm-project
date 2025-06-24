@@ -51,13 +51,75 @@ TargetInfo::BuiltinVaListKind TricoreTargetInfo::getBuiltinVaListKind() const {
 }
 
 bool TricoreTargetInfo::validateAsmConstraint(
-    const char *&Name, TargetInfo::ConstraintInfo &info) const {
+    const char *&Name, TargetInfo::ConstraintInfo &Info) const {
+  switch (*Name) {
+  default:
+  case 'd':
+  case 'a':
+    Info.setAllowsRegister();
+    return true;
+  case 'D':
+    Info.setAllowsRegister();
+    return true;
+  case 'A':
+    Info.setAllowsRegister();
+    return true;
+    break;
+  }
   return false;
+}
+
+std::string
+TricoreTargetInfo::convertConstraint(const char *&Constraint) const {
+  std::string R;
+  switch (*Constraint) {
+  case 'r':
+    return std::string("d");
+  default:
+    return std::string(1, *Constraint);
+  }
+}
+
+bool TricoreTargetInfo::validateConstraintModifier(
+    StringRef Constraint, char Modifier, unsigned Size,
+    std::string &SuggestedModifier) const {
+  bool isOutput = (Constraint[0] == '=');
+  bool isInOut = (Constraint[0] == '+');
+
+  // Strip off constraint modifiers.
+  Constraint = Constraint.ltrim("=+&");
+
+  switch (Constraint[0]) {
+  default:
+    return false;
+  case 'd':
+  case 'D':
+  case 'a':
+  case 'A':
+    return isOutput || isInOut || Size <= 32;
+  }
 }
 
 std::string_view TricoreTargetInfo::getClobbers() const { return ""; }
 
-ArrayRef<const char *> TricoreTargetInfo::getGCCRegNames() const { return {}; }
+ArrayRef<const char *> TricoreTargetInfo::getGCCRegNames() const {
+  // clang-format off
+  static const char *const GCCRegNames[] = {
+    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
+    "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15",
+    "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
+    "a8", "a9", "a8", "a10", "a11", "a12", "a13", "a14", "a15",
+    "e0", "e2", "e4", "e6", "e8", "e10", "e12", "e14", "psw",
+    "pcxi", "pc", "fcx", "lcx", "isp", "isr", "icr", "pipn", "biv", "btv"
+  };
+
+  return GCCRegNames;
+}
+
 ArrayRef<TargetInfo::GCCRegAlias> TricoreTargetInfo::getGCCRegAliases() const {
-  return {};
+  static const TargetInfo::GCCRegAlias GCCRegAliases[] = {
+    {{"sp"}, "a10"},
+    {{"ra"}, "a11"},
+  };
+  return GCCRegAliases;
 }

@@ -72,8 +72,13 @@ public:
                         MacroBuilder &Builder) const override;
   ArrayRef<Builtin::Info> getTargetBuiltins() const override;
   BuiltinVaListKind getBuiltinVaListKind() const override;
+
   bool validateAsmConstraint(const char *&Name,
                              TargetInfo::ConstraintInfo &info) const override;
+  bool validateConstraintModifier(
+      StringRef /*Constraint*/, char /*Modifier*/, unsigned /*Size*/,
+      std::string & /*SuggestedModifier*/) const override;
+  std::string convertConstraint(const char *&Constraint) const override;
   std::string_view getClobbers() const override;
 
   ArrayRef<const char *> getGCCRegNames() const override;
