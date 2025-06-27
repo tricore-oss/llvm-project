@@ -100,6 +100,8 @@ bool TricoreAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
   // First try the generic code, which knows about modifiers like 'c' and 'n'.
   if (!AsmPrinter::PrintAsmOperand(MI, OpNo, ExtraCode, OS))
     return false;
+
+  return true;
 }
 
 bool TricoreAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
@@ -124,20 +126,7 @@ bool TricoreAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   if (!lowerOperand(Offset, MCO))
     return true;
 
-  if (Offset.isImm())
-    O << MCO.getImm();
-  else if (Offset.isGlobal() || Offset.isBlockAddress() || Offset.isMCSymbol())
-    O << *MCO.getExpr();
-
-  if (Offset.isMCSymbol())
-    MMI->getContext().registerInlineAsmLabel(Offset.getMCSymbol());
-  if (Offset.isBlockAddress()) {
-    const BlockAddress *BA = Offset.getBlockAddress();
-    MCSymbol *Sym = GetBlockAddressSymbol(BA);
-    MMI->getContext().registerInlineAsmLabel(Sym);
-  }
-
-  O << "(" << TricoreInstPrinter::getRegisterName(AddrReg.getReg()) << ")";
+  return false;
 }
 
 bool TricoreAsmPrinter::lowerToMCInst(const MachineInstr *MI, MCInst &OutMI) {
@@ -197,6 +186,10 @@ bool TricoreAsmPrinter::lowerOperand(const MachineOperand &MO,
     break;
   case MachineOperand::MO_GlobalAddress:
     MCOp = lowerSymbolOperand(MO, getSymbolPreferLocal(*MO.getGlobal()), *this);
+    break;
+  case MachineOperand::MO_ExternalSymbol:
+    MCOp = lowerSymbolOperand(MO, GetExternalSymbolSymbol(MO.getSymbolName()),
+                              *this);
     break;
   default:
     report_fatal_error("lowerOperand: unknown operand type");

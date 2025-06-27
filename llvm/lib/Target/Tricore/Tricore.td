@@ -16,10 +16,18 @@ include "llvm/Target/Target.td"
 
 
 //===----------------------------------------------------------------------===//
-// Tricore Subtarget features                                                    //
+// Tricore Subtarget features                                                 //
 //===----------------------------------------------------------------------===//
-def FeatureFloat32
-    : SubtargetFeature<"SignleFloat", "HasSingle", "true", "Implements Single Float">;
+def FeatureTC131 : SubtargetFeature<"tc131", "ArchType", "TC131", "Tricore 1.3.1 Instruction Set">;
+def FeatureTC16 : SubtargetFeature<"tc16", "ArchType", "TC16", "Tricore 1.6 Instruction Set", [FeatureTC131]>;
+def FeatureTC162 : SubtargetFeature<"tc162", "ArchType", "TC162", "Tricore 1.6.2 Instruction Set", [FeatureTC16]>;
+def FeatureTC18 : SubtargetFeature<"tc18", "ArchType", "TC18", "Tricore 1.8 Instruction Set", [FeatureTC162]>;
+
+def FeatureVirt : SubtargetFeature<"virt", "HasVirtualization", "true", "Virutalization Instructions">;
+
+def FeatureSoftFloat : SubtargetFeature<"soft-float", "FPType", "FP_Soft", "Implements Soft Float">;
+def FeatureSingleFloat : SubtargetFeature<"single-float", "FPType", "FP_Single", "Implements Single Float">;
+def FeatureDoubleFloat : SubtargetFeature<"double-float", "FPType", "FP_Double", "Implements Double Float">;
 
 //===----------------------------------------------------------------------===//
 // Register File, Calling Conv, Instruction Descriptions
@@ -42,13 +50,15 @@ def TricoreInstrInfo : InstrInfo {
 // Tricore processors supported.
 //===----------------------------------------------------------------------===//
 
-
-def TC16 : ProcessorModel<"tc16", NoSchedModel, [FeatureFloat32]>;
+def TC13 : ProcessorModel<"tc13", NoSchedModel, []>;
+def TC131 : ProcessorModel<"tc131", NoSchedModel, [FeatureTC131]>;
+def TC16 : ProcessorModel<"tc16", NoSchedModel, [FeatureTC16]>;
+def TC162 : ProcessorModel<"tc162", NoSchedModel, [FeatureTC162]>;
+def TC18 : ProcessorModel<"tc18", NoSchedModel, [FeatureTC18]>;
 
 def TricoreAsmParser : AsmParser {
   let ShouldEmitMatchRegisterAltName = 1;
 }
-
 
 def TricoreAsmWriter : AsmWriter {
   int PassSubtarget = 1;

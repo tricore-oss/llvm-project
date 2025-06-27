@@ -33,7 +33,7 @@ enum NodeType : unsigned {
 }
 
 class TricoreTargetLowering : public TargetLowering {
-  const TricoreSubtarget *Subtarget;
+  const TricoreSubtarget &Subtarget;
 
 public:
   TricoreTargetLowering(const TargetMachine &TM, const TricoreSubtarget &STI);

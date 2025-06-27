@@ -46,7 +46,7 @@ using namespace llvm;
 
 TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
                                              const TricoreSubtarget &STI)
-    : TargetLowering(TM), Subtarget(&STI) {
+    : TargetLowering(TM), Subtarget(STI) {
 
   setBooleanContents(ZeroOrOneBooleanContent);
   setBooleanVectorContents(ZeroOrOneBooleanContent);
@@ -68,10 +68,18 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
   setOperationAction(ISD::ConstantPool, MVT::i64, Custom);
   setOperationAction(ISD::JumpTable, MVT::i64, Custom);
+
+  if (!Subtarget.hasSoftFloat()) {
+    addRegisterClass(MVT::f32, &Tricore::DGPRRegClass);
+
+    if (!Subtarget.hasSingleFloat()) {
+      addRegisterClass(MVT::f64, &Tricore::EGPRRegClass);
+    }
+  }
 }
 
 bool TricoreTargetLowering::useSoftFloat() const {
-  return Subtarget->useSoftFloat();
+  return Subtarget.hasSoftFloat();
 }
 
 SDValue TricoreTargetLowering::LowerFormalArguments(
@@ -277,7 +285,7 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
     Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
 
   // Add a register mask operand representing the call-preserved registers.
-  const TargetRegisterInfo *TRI = Subtarget->getRegisterInfo();
+  const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
   const uint32_t *Mask = TRI->getCallPreservedMask(MF, CallConv);
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(DAG.getRegisterMask(Mask));

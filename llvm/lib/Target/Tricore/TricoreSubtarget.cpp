@@ -31,7 +31,7 @@ TricoreSubtarget &TricoreSubtarget::initializeSubtargetDependencies(
   // Determine default and user specified characteristics
   std::string CPUName = std::string(CPU);
   if (CPUName.empty())
-    CPUName = "tc16";
+    CPUName = "tc13";
 
   if (TuneCPU.empty())
     TuneCPU = CPUName;
