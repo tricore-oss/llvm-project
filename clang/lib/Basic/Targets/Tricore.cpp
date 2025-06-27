@@ -5,23 +5,19 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/TargetParser/TricoreTargetParser.h"
 
 using namespace clang;
 using namespace clang::targets;
 
 void TricoreTargetInfo::fillValidCPUList(
     SmallVectorImpl<StringRef> &Values) const {
-  Values.push_back("generic");
-  Values.push_back("tc16");
-  Values.push_back("tc18");
+  llvm::Tricore::fillValidCPUArchList(Values);
 }
 
-TricoreTargetInfo::CPUKind TricoreTargetInfo::getCPUKind(StringRef Name) const {
-  if (Name == "tc16")
-    return CK_TC16;
-  if (Name == "tc18")
-    return CK_TC18;
-  return CK_GENERIC;
+void TricoreTargetInfo::fillValidTuneCPUList(
+    SmallVectorImpl<StringRef> &Values) const {
+  llvm::Tricore::fillValidTuneCPUArchList(Values);
 }
 
 void TricoreTargetInfo::getTargetDefines(const LangOptions &Opts,

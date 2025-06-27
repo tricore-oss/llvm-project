@@ -25,6 +25,7 @@ add_llvm_component_library(LLVMTargetParser
   RISCVTargetParser.cpp
   SubtargetFeature.cpp
   TargetParser.cpp
+  TricoreTargetParser.cpp
   Triple.cpp
   X86TargetParser.cpp
 

@@ -17,18 +17,20 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TargetOptions.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/TargetParser/TricoreTargetParser.h"
 #include "llvm/TargetParser/Triple.h"
+
 namespace clang {
 namespace targets {
 
 class LLVM_LIBRARY_VISIBILITY TricoreTargetInfo : public TargetInfo {
   static const TargetInfo::GCCRegAlias GCCRegAliases[];
   static const char *const GCCRegNames[];
-  bool SoftFloat;
+  std::string CPU;
 
 public:
   TricoreTargetInfo(const llvm::Triple &Triple, const TargetOptions &)
-      : TargetInfo(Triple), SoftFloat(false) {
+      : TargetInfo(Triple) {
     HasStrictFP = true;
 
     SizeType = UnsignedLong;
@@ -47,19 +49,18 @@ public:
     MaxAtomicInlineWidth = 32;
   }
 
-  enum CPUKind { CK_GENERIC, CK_TC16, CK_TC18 } CPU = CK_GENERIC;
-
-  CPUKind getCPUKind(StringRef Name) const;
-
   bool isValidCPUName(StringRef Name) const override {
-    return getCPUKind(Name) != CK_GENERIC;
+    return llvm::Tricore::parseCPUArch(Name) != llvm::Tricore::ArchKind::INVALID;
   }
 
   void fillValidCPUList(SmallVectorImpl<StringRef> &Values) const override;
+  void fillValidTuneCPUList(SmallVectorImpl<StringRef> &Values) const override;
 
   bool setCPU(const std::string &Name) override {
-    CPU = getCPUKind(Name);
-    return CPU != CK_GENERIC;
+    if (!isValidCPUName(Name))
+      return false;
+    CPU = Name;
+    return true;
   }
 
   std::pair<unsigned, unsigned> hardwareInterferenceSizes() const override {
