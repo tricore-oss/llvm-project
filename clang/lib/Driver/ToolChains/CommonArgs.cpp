@@ -17,6 +17,7 @@
 #include "Arch/RISCV.h"
 #include "Arch/Sparc.h"
 #include "Arch/SystemZ.h"
+#include "Arch/Tricore.h"
 #include "Arch/VE.h"
 #include "Arch/X86.h"
 #include "BareMetal.h"
@@ -713,6 +714,9 @@ std::string tools::getCPUName(const Driver &D, const ArgList &Args,
     if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
       return A->getValue();
     return "";
+
+  case llvm::Triple::tricore:
+    return tricore::getTricoreTargetCPU(Args, T);
   }
 }
 
@@ -800,6 +804,9 @@ void tools::getTargetFeatures(const Driver &D, const llvm::Triple &Triple,
   case llvm::Triple::loongarch32:
   case llvm::Triple::loongarch64:
     loongarch::getLoongArchTargetFeatures(D, Triple, Args, Features);
+    break;
+  case llvm::Triple::tricore:
+    tricore::getTricoreTargetFeatures(D, Args, Features);
     break;
   }
 
