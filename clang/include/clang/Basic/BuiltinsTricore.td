@@ -20,4 +20,5 @@ class TricoreBuiltin<string prototype, string features = ""> : TargetBuiltin {
 
 let Attributes = [NoThrow, Const] in {
   def mtcr : TricoreBuiltin<"void(unsigned int, unsigned int)">;
+  def insert : TricoreBuiltin<"unsigned int(unsigned int, unsigned int, unsigned int, unsigned int)">;
 }

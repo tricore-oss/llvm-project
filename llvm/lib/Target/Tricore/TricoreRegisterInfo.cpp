@@ -60,6 +60,7 @@ TricoreRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
   Reserved.set(Tricore::A10);
   Reserved.set(Tricore::A11);
+  Reserved.set(Tricore::P10);
   Reserved.set(Tricore::PC);
   Reserved.set(Tricore::PSW);
   Reserved.set(Tricore::PCXI);

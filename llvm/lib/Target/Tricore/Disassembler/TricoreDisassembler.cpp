@@ -81,6 +81,12 @@ static DecodeStatus DecodeAGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
 static DecodeStatus DecodeDGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
                                             uint64_t Address,
                                             const MCDisassembler *Decoder);
+static DecodeStatus DecodePGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
+                                            uint64_t Address,
+                                            const MCDisassembler *Decoder);
+static DecodeStatus DecodeEGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
+                                            uint64_t Address,
+                                            const MCDisassembler *Decoder);
 template <unsigned N>
 static DecodeStatus decodeUImmOperand(MCInst &Inst, uint32_t Imm,
                                       int64_t Address,
@@ -116,6 +122,30 @@ static DecodeStatus DecodeDGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
     return MCDisassembler::Fail;
 
   MCRegister Reg = Tricore::D0 + RegNo;
+
+  Inst.addOperand(MCOperand::createReg(Reg));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodePGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
+                                            uint64_t Address,
+                                            const MCDisassembler *Decoder) {
+  if (RegNo >= 16 || (RegNo % 2 == 1))
+    return MCDisassembler::Fail;
+
+  MCRegister Reg = Tricore::P0 + RegNo/2;
+
+  Inst.addOperand(MCOperand::createReg(Reg));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodeEGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
+                                            uint64_t Address,
+                                            const MCDisassembler *Decoder) {
+  if (RegNo >= 16 || RegNo % 2 == 1)
+    return MCDisassembler::Fail;
+
+  MCRegister Reg = Tricore::E0 + RegNo/2;
 
   Inst.addOperand(MCOperand::createReg(Reg));
   return MCDisassembler::Success;

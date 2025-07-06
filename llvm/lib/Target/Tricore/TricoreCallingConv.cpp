@@ -15,6 +15,10 @@ static const MCPhysReg PointerArgList[] = {Tricore::A4, Tricore::A5,
 
 static const MCPhysReg DataArgList[] = {Tricore::D4, Tricore::D5, Tricore::D6,
                                         Tricore::D7};
+static const MCPhysReg ExtendedDataArgList[] = {
+    Tricore::E4,
+    Tricore::E6,
+};
 
 bool llvm::CC_TricoreEABI(unsigned ValNo, MVT ValVT, MVT LocVT,
                           CCValAssign::LocInfo LocInfo,
@@ -44,7 +48,7 @@ bool llvm::CC_TricoreEABI(unsigned ValNo, MVT ValVT, MVT LocVT,
     }
   }
   if (ValVT == MVT::i64) {
-    if (MCRegister Reg = State.AllocateReg(DataArgList)) {
+    if (MCRegister Reg = State.AllocateReg(ExtendedDataArgList)) {
       for (auto SubReg : RI->subregs(Reg)) {
         State.AllocateReg(SubReg);
       }

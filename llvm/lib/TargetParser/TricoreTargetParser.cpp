@@ -15,6 +15,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/TargetParser/RISCVISAInfo.h"
+#include <cstdint>
 
 namespace llvm {
 namespace Tricore {
@@ -62,6 +63,15 @@ const CpuNames CPUNames[] = {
 #include "llvm/TargetParser/TricoreTargetParser.def"
 };
 
+ArchKind parseArch(StringRef Arch) {
+  for (const auto &A : TricoreArchNames) {
+    if (Arch.starts_with(A.Name)) {
+      return A.ID;
+    }
+  }
+  return ArchKind::INVALID;
+}
+
 ArchKind parseCPUArch(StringRef CPU) {
   for (auto &C : CPUNames) {
     if (CPU.starts_with(C.Name)) {
@@ -71,13 +81,13 @@ ArchKind parseCPUArch(StringRef CPU) {
   return ArchKind::INVALID;
 }
 
-ArchKind parseArch(StringRef Arch) {
-  for (const auto &A : TricoreArchNames) {
-    if (Arch.starts_with(A.Name)) {
+uint64_t parseArchExt(StringRef ArchExt) {
+  for (const auto &A : ARCHExtNames) {
+    if (A.Name == ArchExt) {
       return A.ID;
     }
   }
-  return ArchKind::INVALID;
+  return AEK_INVALID;
 }
 
 StringRef getFPUName(FPUKind FPUKind) {
@@ -101,7 +111,7 @@ uint64_t getArchAttr(ArchKind AK) {
 }
 
 FPUKind getDefaultFPU(StringRef CPU, ArchKind AK) {
-  if (CPU == "generic")
+  if (CPU.empty() || CPU == "generic")
     return TricoreArchNames[static_cast<unsigned>(AK)].DefaultFPU;
 
   return StringSwitch<FPUKind>(CPU)
@@ -112,7 +122,7 @@ FPUKind getDefaultFPU(StringRef CPU, ArchKind AK) {
 }
 
 uint64_t getDefaultExtensions(StringRef CPU, ArchKind AK) {
-  if (CPU == "generic")
+  if (CPU.empty() || CPU == "generic")
     return TricoreArchNames[static_cast<unsigned>(AK)].ArchBaseExtensions;
 
   return StringSwitch<uint64_t>(CPU)
@@ -156,23 +166,24 @@ bool getExtensionFeatures(uint64_t Extensions,
   return true;
 }
 
-bool appendArchExtFeatures(StringRef CPU, ArchKind AK, StringRef ArchExt,
-                           std::vector<StringRef> &Features,
-                           FPUKind &ArgFPUKind) {
-  uint64_t ID = AEK_INVALID;
+bool appendArchExtFeatures(StringRef ArchExt,
+                           std::vector<StringRef> &Features) {
+  size_t FeatureSize = Features.size();
+  bool Negated = ArchExt.starts_with('-');
+  ArchExt = ArchExt.substr(1);
 
   for (const auto &AEK : ARCHExtNames) {
-    if (AEK.Feature == ArchExt) {
-      Features.push_back(AEK.Feature);
-      ID = AEK.ID;
-    }
-    if (AEK.NegFeature == ArchExt) {
-      Features.push_back(AEK.NegFeature);
-      ID = AEK.ID;
+    if (AEK.Name == ArchExt) {
+      if (Negated) {
+        if (!AEK.NegFeature.empty()) {
+          Features.push_back(AEK.NegFeature);
+        }
+      } else {
+        Features.push_back(AEK.Feature);
+      }
     }
   }
-
-  return ID != AEK_INVALID;
+  return FeatureSize != Features.size();
 }
 
 void fillValidCPUArchList(SmallVectorImpl<StringRef> &Values) {

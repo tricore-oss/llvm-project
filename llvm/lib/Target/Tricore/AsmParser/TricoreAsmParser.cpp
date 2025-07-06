@@ -384,9 +384,33 @@ public:
            VK == TricoreMCExpr::VK_Tricore_None;
   }
 
+  bool isSImm4() const { return isSImm<4>(); }
+  bool isSImm9() const { return isSImm<9>(); }
+
   bool isUImm4() const { return isUImm<4>(); }
+  bool isUImm5() const { return isUImm<5>(); }
   bool isUImm8() const { return isUImm<8>(); }
   bool isUImm16() const { return isUImm<16>(); }
+
+  bool isPos() const {
+    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
+    int64_t Imm;
+    if (!isImm())
+      return false;
+    bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
+
+    return IsConstantImm && Imm >= 0 && Imm < 32;
+  }
+
+  bool isWidth() const {
+    TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
+    int64_t Imm;
+    if (!isImm())
+      return false;
+    bool IsConstantImm = evaluateConstantImm(getImm(), Imm, VK);
+
+    return IsConstantImm && Imm > 0 && Imm <= 32;
+  }
 
   StringRef getToken() const {
     assert(Kind == Token && "Invalid access!");

@@ -99,7 +99,7 @@ MachineBasicBlock::iterator TricoreFrameLowering::eliminateCallFramePseudoInstr(
             .addReg(Tricore::A10)
             .addImm(Amount);
       } else {
-        BuildMI(MBB, MI, DL, TII.get(Tricore::addi), Tricore::A10)
+        BuildMI(MBB, MI, DL, TII.get(Tricore::ADDI), Tricore::A10)
             .addReg(Tricore::A10)
             .addReg(Tricore::A10)
             .addImm(Amount);

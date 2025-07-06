@@ -716,7 +716,7 @@ std::string tools::getCPUName(const Driver &D, const ArgList &Args,
     return "";
 
   case llvm::Triple::tricore:
-    return tricore::getTricoreTargetCPU(Args, T);
+    return tricore::getTricoreTargetCPU(Args);
   }
 }
 

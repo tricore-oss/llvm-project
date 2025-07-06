@@ -17,6 +17,7 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/TricoreTargetParser.h"
 #include <cstddef>
+#include <vector>
 
 using namespace clang::driver;
 using namespace clang::driver::tools;
@@ -56,9 +57,14 @@ tricore::FloatABI tricore::getTricoreFloatABI(const Driver &D,
   return ABI;
 }
 
-std::string tricore::getTricoreArch(const llvm::opt::ArgList &Args) {
+std::string tricore::getTricoreTargetCPU(const llvm::opt::ArgList &Args) {
   if (const Arg *A = Args.getLastArg(options::OPT_march_EQ)) {
-    return A->getValue();
+    StringRef Arch = A->getValue();
+    llvm::Tricore::ArchKind Kind = llvm::Tricore::parseArch(Arch);
+
+    if (Kind != llvm::Tricore::ArchKind::INVALID) {
+      return llvm::Tricore::getArchName(Kind).str();
+    }
   }
 
   if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
@@ -73,100 +79,68 @@ std::string tricore::getTricoreArch(const llvm::opt::ArgList &Args) {
   return "tc13";
 }
 
-std::string tricore::getTricoreTargetCPU(const llvm::opt::ArgList &Args,
-                                         const llvm::Triple &Triple) {
-  return getTricoreArch(Args);
-}
-
-// Decode Tricore features from string like +[no]featureA+[no]featureB+...
-static bool DecodeTricoreFeatures(const Driver &D, StringRef text,
-                                  StringRef CPU,
-                                  llvm::Tricore::ArchKind ArchKind,
-                                  std::vector<StringRef> &Features,
-                                  llvm::Tricore::FPUKind &ArgFPUKind) {
-  std::size_t Start = text.size() > 0 ? 0 : std::string::npos;
-  auto End = text.find_first_of("+-", Start);
+static bool DecodeTricoreFeatures(StringRef text,
+                                  std::vector<StringRef> &Features) {
+  std::size_t Start = text.find_first_of("+-");
 
   while (Start != std::string::npos) {
+    auto End = text.find_first_of("+-", Start + 1);
     auto Feature = text.substr(Start, End - Start);
-    if (!appendArchExtFeatures(CPU, ArchKind, Feature, Features, ArgFPUKind))
+    if (!llvm::Tricore::appendArchExtFeatures(Feature, Features))
       return false;
+    Start = End;
   }
   return true;
 }
 
-static void DecodeTricoreFeaturesFromCPU(const Driver &D, StringRef CPU,
-                                         std::vector<StringRef> &Features) {
-  CPU = CPU.split("+").first;
-  if (CPU != "generic") {
-    llvm::Tricore::ArchKind ArchKind = llvm::Tricore::parseCPUArch(CPU);
-    uint64_t Extension = llvm::Tricore::getDefaultExtensions(CPU, ArchKind);
-    llvm::Tricore::getExtensionFeatures(Extension, Features);
-  }
-}
-
-static void checkTricoreArchName(const Driver &D, const Arg *A,
-                                 const ArgList &Args, llvm::StringRef MArch,
-                                 llvm::StringRef CPUName,
-                                 std::vector<StringRef> &Features,
-                                 const llvm::Triple &Triple,
-                                 llvm::Tricore::FPUKind &ArgFPUKind) {
-
-  auto ArchNameEnd = MArch.find('+');
-  StringRef ArchName = MArch.substr(0, ArchNameEnd);
-  StringRef ArchFeatures = MArch.substr(ArchNameEnd);
-
-  llvm::Tricore::ArchKind ArchKind = llvm::Tricore::parseArch(ArchName);
-  if (ArchKind == llvm::Tricore::ArchKind::INVALID ||
-      (ArchFeatures.size() &&
-       !DecodeTricoreFeatures(D, ArchFeatures, CPUName, ArchKind, Features,
-                              ArgFPUKind)))
-    D.Diag(clang::diag::err_drv_unsupported_option_argument)
-        << A->getSpelling() << A->getValue();
-}
-
-// Check -mcpu=. Needs ArchName to handle -mcpu=generic.
-static void checkTricoreCPUName(const Driver &D, const Arg *A,
-                                const ArgList &Args, llvm::StringRef CPUName,
-                                llvm::StringRef ArchName,
-                                std::vector<StringRef> &Features,
-                                const llvm::Triple &Triple,
-                                llvm::Tricore::FPUKind &ArgFPUKind) {
-  auto CPUEnd = CPUName.find_first_of("-+");
-  StringRef CPU = CPUName.substr(0, CPUEnd);
-  StringRef CPUFeatures = CPUName.substr(CPUEnd);
-  llvm::Tricore::ArchKind ArchKind =
-      llvm::Tricore::parseCPUArch(CPU);
-
-  if (ArchKind == llvm::Tricore::ArchKind::INVALID ||
-      (CPUFeatures.size() &&
-       !DecodeTricoreFeatures(D, CPUFeatures, CPU, ArchKind, Features,
-                              ArgFPUKind)))
-    D.Diag(clang::diag::err_drv_unsupported_option_argument)
-        << A->getSpelling() << A->getValue();
-}
-
 void tricore::getTricoreTargetFeatures(const Driver &D, const ArgList &Args,
                                        std::vector<StringRef> &Features) {
-  tricore::FloatABI FloatABI = tricore::getTricoreFloatABI(D, Args);
-  if (FloatABI == tricore::FloatABI::Soft)
-    Features.push_back("+soft-float");
-
+  llvm::StringRef ArchName;
+  llvm::StringRef CpuName;
   const Arg *ArchArg = Args.getLastArg(options::OPT_march_EQ);
-  const Arg *CPUArg = Args.getLastArg(options::OPT_mcpu_EQ);
-  StringRef Arch = ArchArg ? ArchArg->getValue() : "";
-  StringRef Cpu = CPUArg ? CPUArg->getValue() : "";
-  llvm::Tricore::ArchKind ArchKind = getLLVMArchKindForTricore(Cpu, Arch);
-}
+  const Arg *CpuArg = Args.getLastArg(clang::driver::options::OPT_mcpu_EQ);
+  llvm::Tricore::ArchKind ArchKind = llvm::Tricore::ArchKind::INVALID;
 
-llvm::Tricore::ArchKind tricore::getLLVMArchKindForTricore(
-    StringRef CPU, StringRef Arch) {
-
-  if (CPU.empty()) {
-    if (Arch.empty())
-      return llvm::Tricore::ArchKind::TC13;
-    return llvm::Tricore::parseArch(Arch);
+  if (ArchArg) {
+    ArchKind = llvm::Tricore::parseArch(ArchArg->getValue());
+    if (ArchKind == llvm::Tricore::ArchKind::INVALID) {
+      D.Diag(clang::diag::err_drv_invalid_arch_name)
+          << ArchArg->getAsString(Args);
+      return;
+    }
+    ArchName = ArchArg->getValue();
   }
 
-  return llvm::Tricore::parseCPUArch(CPU);
+  if (CpuArg) {
+    llvm::Tricore::ArchKind Kind =
+        llvm::Tricore::parseCPUArch(CpuArg->getValue());
+    if (Kind == llvm::Tricore::ArchKind::INVALID) {
+      D.Diag(clang::diag::err_drv_unsupported_option_argument)
+          << CpuArg->getSpelling() << CpuArg->getAsString(Args);
+      return;
+    }
+    if (!ArchName.empty() && Kind != ArchKind) {
+      D.Diag(clang::diag::err_drv_unsupported_option_argument)
+          << CpuArg->getSpelling() << CpuArg->getAsString(Args);
+      return;
+    }
+    CpuName = CpuArg->getValue();
+    if (ArchName.empty())
+      ArchName = llvm::Tricore::getArchName(Kind);
+  }
+
+  uint64_t Extension = llvm::Tricore::getDefaultExtensions(CpuName, ArchKind);
+  llvm::Tricore::getExtensionFeatures(Extension, Features);
+  llvm::Tricore::FPUKind FPU = llvm::Tricore::getDefaultFPU(CpuName, ArchKind);
+  llvm::Tricore::getFPUFeatures(FPU, Features);
+
+  if (ArchArg && !DecodeTricoreFeatures(ArchName, Features)) {
+    D.Diag(clang::diag::err_drv_unsupported_option_argument)
+        << ArchArg->getSpelling() << ArchArg->getAsString(Args);
+  }
+
+  if (CpuArg && !DecodeTricoreFeatures(CpuName, Features)) {
+    D.Diag(clang::diag::err_drv_unsupported_option_argument)
+        << ArchArg->getSpelling() << ArchArg->getAsString(Args);
+  }
 }

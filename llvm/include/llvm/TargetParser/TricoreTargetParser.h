@@ -50,6 +50,7 @@ enum FPUKind {
 // Parse
 ArchKind parseCPUArch(StringRef CPU);
 ArchKind parseArch(StringRef Arch);
+uint64_t parseArchExt(StringRef ArchExt);
 
 // FPU
 StringRef getFPUName(FPUKind FPUKind);
@@ -66,9 +67,7 @@ uint64_t getDefaultExtensions(StringRef CPU, ArchKind AK);
 bool getFPUFeatures(FPUKind FPUKind, std::vector<StringRef> &Features);
 bool getExtensionFeatures(uint64_t Extensions,
                           std::vector<StringRef> &Features);
-bool appendArchExtFeatures(StringRef CPU, ArchKind AK, StringRef ArchExt,
-                           std::vector<StringRef> &Features,
-                           FPUKind &ArgFPUKind);
+bool appendArchExtFeatures(StringRef ArchExt, std::vector<StringRef> &Features);
 
 void fillValidCPUArchList(SmallVectorImpl<StringRef> &Values);
 void fillValidTuneCPUArchList(SmallVectorImpl<StringRef> &Values);

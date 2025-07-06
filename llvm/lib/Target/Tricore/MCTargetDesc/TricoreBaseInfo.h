@@ -21,6 +21,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/TargetParser/SubtargetFeature.h"
+#include <cstdint>
 // #include "llvm/TargetParser/TricoreISAInfo.h"
 // #include "llvm/TargetParser/TricoreTargetParser.h"
 
@@ -28,15 +29,20 @@ namespace llvm {
 namespace TricoreOp {
 enum OperandType : unsigned {
   OPERAND_FIRST_Tricore_IMM = MCOI::OPERAND_FIRST_TARGET,
-  OPERAND_SIMM10 = OPERAND_FIRST_Tricore_IMM,
+  OPERAND_SIMM4 = OPERAND_FIRST_Tricore_IMM,
+  OPERAND_SIMM9,
+  OPERAND_SIMM10,
   OPERAND_SIMM16,
   OPERAND_UIMM4,
+  OPERAND_UIMM5,
   OPERAND_UIMM8,
   OPERAND_UIMM16,
   OPERAND_DISP24,
   OPERAND_DISP15,
   OPERAND_DISP8,
   OPERAND_DISP4,
+  OPERAND_POS,
+  OPERAND_WIDTH,
 };
 }
 namespace TricoreII {
@@ -83,6 +89,10 @@ enum {
 /// \returns the format of the instruction.
 static inline unsigned getFormat(uint64_t TSFlags) {
   return (TSFlags & InstFormatMask) >> InstFormatShift;
+}
+
+static inline bool isAbsolute(uint64_t TSFlags) {
+  return (TSFlags & (1 << 6)) != 0;
 }
 } // namespace TricoreII
 } // namespace llvm

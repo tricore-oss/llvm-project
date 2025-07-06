@@ -28,14 +28,11 @@ enum class FloatABI {
   Hard,
 };
 
-std::string getTricoreTargetCPU(const llvm::opt::ArgList &Args,
-                                const llvm::Triple &Triple);
+std::string getTricoreTargetCPU(const llvm::opt::ArgList &Args);
 void getTricoreTargetFeatures(const Driver &D, const llvm::opt::ArgList &Args,
                               std::vector<llvm::StringRef> &Features);
 
-llvm::Tricore::ArchKind getLLVMArchKindForTricore(StringRef CPU, StringRef Arch);
 FloatABI getTricoreFloatABI(const Driver &D, const llvm::opt::ArgList &Args);
-std::string getTricoreArch(const llvm::opt::ArgList &Args);
 
 } // end namespace tricore
 } // end namespace tools

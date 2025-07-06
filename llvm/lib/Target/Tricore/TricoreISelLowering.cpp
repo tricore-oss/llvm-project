@@ -31,8 +31,10 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGenTypes/MachineValueType.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Function.h"
@@ -40,6 +42,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
 #include <cassert>
+#include <cstdint>
 using namespace llvm;
 
 #include "TricoreGenCallingConv.inc"
@@ -52,6 +55,8 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   setBooleanVectorContents(ZeroOrOneBooleanContent);
 
   addRegisterClass(MVT::i32, &Tricore::DGPRRegClass);
+  addRegisterClass(MVT::v2i32, &Tricore::EGPRRegClass);
+  addRegisterClass(MVT::i64, &Tricore::EGPRRegClass);
   // addRegisterClass(MVT::i32, &Tricore::AddrRegsRegClass);
 
   // Compute derived properties from the register classes.
@@ -68,6 +73,17 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
   setOperationAction(ISD::ConstantPool, MVT::i64, Custom);
   setOperationAction(ISD::JumpTable, MVT::i64, Custom);
+
+  // DAG combine
+  setTargetDAGCombine({ISD::SRA, ISD::AND, ISD::OR});
+
+  setOperationAction(ISD::ADDE, MVT::i32, Legal);
+  setOperationAction(ISD::ADDC, MVT::i32, Legal);
+
+  setOperationAction(ISD::MUL, MVT::i64, LibCall);
+  // BRCC
+  // setOperationAction(ISD::BR_CC, MVT::i32, Expand);
+  setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
 
   if (!Subtarget.hasSoftFloat()) {
     addRegisterClass(MVT::f32, &Tricore::DGPRRegClass);
@@ -418,5 +434,111 @@ SDValue TricoreTargetLowering::LowerOperation(SDValue Op,
     llvm_unreachable("Should not custom lower this!");
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
+  }
+}
+
+static SDValue performSRACombine(SDNode *N, SelectionDAG &DAG,
+                                 TargetLowering::DAGCombinerInfo &DCI,
+                                 const TricoreSubtarget &Subtarget) {
+  SDNode *Arg0 = N->getOperand(0).getNode();
+
+  if (Arg0->getOpcode() == ISD::SHL &&
+      N->getOperand(1)->getOpcode() == ISD::Constant &&
+      Arg0->getOperand(1).getOpcode() == ISD::Constant) {
+    int64_t SRAImm = N->getConstantOperandVal(1);
+    int64_t SHLImm = Arg0->getConstantOperandVal(1);
+    int64_t Width = 32 - SRAImm;
+    int64_t Pos = 32 - SHLImm - Width;
+
+    if (Pos >= 0 && Width > 0 && Pos + Width <= 32) {
+      return DAG.getNode(TricoreISD::EXTR, SDLoc(N), MVT::i32,
+                         Arg0->getOperand(0),
+                         DAG.getConstant(Pos, SDLoc(N), MVT::i32),
+                         DAG.getConstant(Width, SDLoc(N), MVT::i32));
+    }
+  }
+  return SDValue();
+}
+
+static SDValue performANDCombine(SDNode *N, SelectionDAG &DAG,
+                                 TargetLowering::DAGCombinerInfo &DCI,
+                                 const TricoreSubtarget &Subtarget) {
+  SDNode *Arg0 = N->getOperand(0).getNode();
+
+  if (Arg0->getOpcode() == ISD::SRL &&
+      N->getOperand(1)->getOpcode() == ISD::Constant &&
+      Arg0->getOperand(1).getOpcode() == ISD::Constant) {
+    int64_t ANDImm = N->getConstantOperandVal(1);
+    int64_t SRLImm = Arg0->getConstantOperandVal(1);
+    int64_t Width = __builtin_popcount(ANDImm);
+    int64_t Pos = SRLImm;
+
+    if (__builtin_ctz(ANDImm) != 0 || (__builtin_clz(ANDImm) + Width != 32)) {
+      return SDValue();
+    }
+
+    if (Pos >= 0 && Width > 0 && Pos + Width <= 32) {
+      return DAG.getNode(TricoreISD::EXTRU, SDLoc(N), MVT::i32,
+                         Arg0->getOperand(0),
+                         DAG.getConstant(Pos, SDLoc(N), MVT::i32),
+                         DAG.getConstant(Width, SDLoc(N), MVT::i32));
+    }
+  }
+  return SDValue();
+}
+
+static SDValue performORCombine(SDNode *N, SelectionDAG &DAG,
+                                TargetLowering::DAGCombinerInfo &DCI,
+                                const TricoreSubtarget &Subtarget) {
+  SDNode *Arg0 = N->getOperand(0).getNode();
+  SDNode *Arg1 = N->getOperand(1).getNode();
+
+  bool HasInsertOps = Arg0->getOpcode() == ISD::AND &&
+                      Arg0->getOperand(1).getOpcode() == ISD::Constant &&
+                      Arg1->getOpcode() == ISD::AND &&
+                      Arg1->getOperand(1).getOpcode() == ISD::Constant &&
+                      (Arg0->getOperand(0).getOpcode() == ISD::SHL ||
+                       Arg1->getOperand(0).getOpcode() == ISD::SHL);
+
+  if (HasInsertOps) {
+    uint32_t Arg0Mask = Arg0->getConstantOperandVal(1);
+    uint32_t Arg1Mask = Arg1->getConstantOperandVal(1);
+    if (Arg1Mask != ~Arg0Mask) {
+      return SDValue();
+    }
+
+    if (Arg0->getOperand(0).getOpcode() == ISD::SHL &&
+        Arg0->getOperand(0).getOperand(1).getOpcode() == ISD::Constant &&
+        Arg0->getOperand(0).getConstantOperandVal(1) ==
+            __builtin_ctz(Arg0Mask)) {
+      return DAG.getNode(
+          TricoreISD::INSERT, SDLoc(N), MVT::i32, Arg1->getOperand(0),
+          Arg0->getOperand(0).getOperand(0), Arg0->getOperand(0).getOperand(1),
+          DAG.getConstant(__builtin_popcount(Arg0Mask), SDLoc(N), MVT::i32));
+    }
+    if (Arg1->getOperand(0).getOpcode() == ISD::SHL &&
+        Arg1->getOperand(0).getOperand(1).getOpcode() == ISD::Constant &&
+        Arg1->getOperand(0).getConstantOperandVal(1) ==
+            __builtin_ctz(Arg1Mask)) {
+      return DAG.getNode(
+          TricoreISD::INSERT, SDLoc(N), MVT::i32, Arg0->getOperand(0),
+          Arg1->getOperand(0).getOperand(0), Arg1->getOperand(0).getOperand(1),
+          DAG.getConstant(__builtin_popcount(Arg1Mask), SDLoc(N), MVT::i32));
+    }
+  }
+  return SDValue();
+}
+
+SDValue TricoreTargetLowering::PerformDAGCombine(SDNode *N,
+                                                 DAGCombinerInfo &DCI) const {
+  switch (N->getOpcode()) {
+  case ISD::SRA:
+    return performSRACombine(N, DCI.DAG, DCI, Subtarget);
+  case ISD::AND:
+    return performANDCombine(N, DCI.DAG, DCI, Subtarget);
+  case ISD::OR:
+    return performORCombine(N, DCI.DAG, DCI, Subtarget);
+  default:
+    return SDValue();
   }
 }

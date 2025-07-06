@@ -39,6 +39,23 @@ public:
   ELFTricoreAsmBackend(const MCSubtargetInfo &STI, Triple::OSType OSType)
       : TricoreAsmBackend(STI), OSType(OSType) {}
 
+  static uint64_t adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
+                                   MCContext &Ctx) {
+    switch (Fixup.getTargetKind()) {
+    default:
+      llvm_unreachable("Unknown fixup kind!");
+    case Tricore::fixup_tricore_branch15:
+      if (!isShiftedInt<15, 1>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      return (Value >> 1);
+    case Tricore::fixup_tricore_rel24:
+      if (!isShiftedInt<24, 1>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      Value = (Value >> 1);
+      return (Value >> 16) | ((Value & 0xFFFF) << 8);
+    }
+  }
+
   void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                   const MCValue &Target, MutableArrayRef<char> Data,
                   uint64_t Value, bool IsResolved,
@@ -49,8 +66,23 @@ public:
     MCContext &Ctx = Asm.getContext();
     MCFixupKindInfo Info = getFixupKindInfo(Kind);
     if (!Value)
-      return;      // Doesn't change encoding.
-    assert(false); // TODO: Implement this function
+      return; // Doesn't change encoding.
+    // Apply any target-specific value adjustments.
+    Value = adjustFixupValue(Fixup, Value, Ctx);
+
+    // Shift the value into position.
+    Value <<= Info.TargetOffset;
+
+    unsigned Offset = Fixup.getOffset();
+    unsigned NumBytes = alignTo(Info.TargetSize + Info.TargetOffset, 8) / 8;
+
+    assert(Offset + NumBytes <= Data.size() && "Invalid fixup offset!");
+
+    // For each byte of the fragment that the fixup touches, mask in the
+    // bits from the fixup value.
+    for (unsigned i = 0; i != NumBytes; ++i) {
+      Data[Offset + i] |= uint8_t((Value >> (i * 8)) & 0xff);
+    }
   }
 
   std::unique_ptr<MCObjectTargetWriter>
@@ -84,7 +116,9 @@ TricoreAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       // name                      offset bits  flags
       {"fixup_tricore_lo", 0, 16, 0},
       {"fixup_tricore_hi", 16, 16, 0},
-      {"fixup_tricore_rel24", 0, 25, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_rel24", 0, 24, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_abs24", 8, 24, 0},
+      {"fixup_tricore_branch15", 16, 15, MCFixupKindInfo::FKF_IsPCRel},
   };
   static_assert((std::size(Infos)) == Tricore::NumTargetFixupKinds,
                 "Not all fixup kinds added to Infos array");

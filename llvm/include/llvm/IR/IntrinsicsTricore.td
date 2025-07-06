@@ -18,5 +18,7 @@ let TargetPrefix = "tricore" in {  // All intrinsics start with "llvm.tricore.".
   def int_tricore_mtcr : ClangBuiltin<"__builtin_tricore_mtcr">,
                      DefaultAttrsIntrinsic<[], [llvm_i32_ty, llvm_i32_ty],
                                            [IntrNoMem, IntrHasSideEffects, ImmArg<ArgIndex<0>>]>;
-
+  def int_tricore_insert : ClangBuiltin<"__builtin_tricore_insert">,
+                    DefaultAttrsIntrinsic<[llvm_i32_ty], [llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty],
+                                          [IntrNoMem]>;
 }

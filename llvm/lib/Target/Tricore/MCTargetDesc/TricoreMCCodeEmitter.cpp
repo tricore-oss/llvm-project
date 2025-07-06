@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/TricoreFixupKinds.h"
+#include "TricoreBaseInfo.h"
 #include "TricoreFixupKinds.h"
 #include "TricoreMCExpr.h"
 #include "TricoreMCTargetDesc.h"
@@ -150,8 +151,8 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
   // bool EnableRelax = STI.hasFeature(Tricore::FeatureRelax);
   const MCOperand &MO = MI.getOperand(OpNo);
 
-  // MCInstrDesc const &Desc = MCII.get(MI.getOpcode());
-  // unsigned MIFrm = TricoreII::getFormat(Desc.TSFlags);
+  MCInstrDesc const &Desc = MCII.get(MI.getOpcode());
+  unsigned MIFrm = TricoreII::getFormat(Desc.TSFlags);
 
   // If the destination is an immediate, there is nothing to do.
   if (MO.isImm())
@@ -178,12 +179,29 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
     case TricoreMCExpr::VK_Tricore_24REL:
       FixupKind = Tricore::fixup_tricore_rel24;
       break;
+    case llvm::TricoreMCExpr::VK_Tricore_24ABS:
+      FixupKind = Tricore::fixup_tricore_abs24;
+      break;
+    default:
+      llvm_unreachable("Unhandled fixup kind!");
     }
   } else if ((Kind == MCExpr::SymbolRef &&
               cast<MCSymbolRefExpr>(Expr)->getKind() ==
-                  MCSymbolRefExpr::VK_None) ||
-             Kind == MCExpr::Binary) {
-    assert(false);
+                  MCSymbolRefExpr::VK_None)) {
+    switch (MIFrm) {
+    default:
+      break;
+    case TricoreII::InstFormatB:
+      if (TricoreII::isAbsolute(Desc.getFlags())) {
+        FixupKind = Tricore::fixup_tricore_abs24;
+      } else {
+        FixupKind = Tricore::fixup_tricore_rel24;
+      }
+      break;
+    case TricoreII::InstFormatBRR:
+      FixupKind = Tricore::fixup_tricore_branch15;
+      break;
+    }
   }
 
   assert(FixupKind != Tricore::fixup_tricore_invalid &&

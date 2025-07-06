@@ -24,6 +24,7 @@ def FeatureTC162 : SubtargetFeature<"tc162", "ArchType", "TC162", "Tricore 1.6.2
 def FeatureTC18 : SubtargetFeature<"tc18", "ArchType", "TC18", "Tricore 1.8 Instruction Set", [FeatureTC162]>;
 
 def FeatureVirt : SubtargetFeature<"virt", "HasVirtualization", "true", "Virutalization Instructions">;
+def FeatureCRC : SubtargetFeature<"crc", "HasCRC", "true", "Implements CRC Instructions">;
 
 def FeatureSoftFloat : SubtargetFeature<"soft-float", "FPType", "FP_Soft", "Implements Soft Float">;
 def FeatureSingleFloat : SubtargetFeature<"single-float", "FPType", "FP_Single", "Implements Single Float">;

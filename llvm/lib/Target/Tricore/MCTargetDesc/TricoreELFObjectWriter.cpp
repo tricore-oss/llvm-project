@@ -60,7 +60,11 @@ unsigned TricoreELFObjectWriter::getRelocType(MCContext &Ctx,
 
 bool TricoreELFObjectWriter::needsRelocateWithSymbol(const MCValue &,
                                                      const MCSymbol &,
-                                                     unsigned Type) const {}
+                                                     unsigned Type) const {
+
+  // TODO: Check for GOT relocations once implemented
+  return false;
+}
 
 std::unique_ptr<MCObjectTargetWriter>
 llvm::createTricoreELFObjectWriter(uint8_t OSABI) {

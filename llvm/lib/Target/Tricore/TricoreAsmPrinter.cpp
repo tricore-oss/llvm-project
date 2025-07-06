@@ -184,11 +184,18 @@ bool TricoreAsmPrinter::lowerOperand(const MachineOperand &MO,
   case MachineOperand::MO_Immediate:
     MCOp = MCOperand::createImm(MO.getImm());
     break;
+  case MachineOperand::MO_MachineBasicBlock:
+    MCOp = lowerSymbolOperand(MO, MO.getMBB()->getSymbol(), *this);
+    break;
   case MachineOperand::MO_GlobalAddress:
     MCOp = lowerSymbolOperand(MO, getSymbolPreferLocal(*MO.getGlobal()), *this);
     break;
   case MachineOperand::MO_ExternalSymbol:
     MCOp = lowerSymbolOperand(MO, GetExternalSymbolSymbol(MO.getSymbolName()),
+                              *this);
+    break;
+  case MachineOperand::MO_BlockAddress:
+    MCOp = lowerSymbolOperand(MO, GetBlockAddressSymbol(MO.getBlockAddress()),
                               *this);
     break;
   default:

@@ -27,6 +27,8 @@ TRICORE_CPU_NAME("invalid", INVALID, FK_NONE, Tricore::AEK_NONE)
 #endif
 TRICORE_ARCH_EXT_NAME("invalid", INVALID, {}, {})
 TRICORE_ARCH_EXT_NAME("none", NONE, {}, {})
+TRICORE_ARCH_EXT_NAME("fpu_sp", FPU_SP, "+single-float", "-single-float")
+TRICORE_ARCH_EXT_NAME("fpu_dp", FPU_DP, "+double-float", "-double-float")
 TRICORE_ARCH_EXT_NAME("crc", CRC, "+crc", "-crc")
 TRICORE_ARCH_EXT_NAME("virt", VIRT, "+virt", "-virt")
 #undef TRICORE_ARCH_EXT_NAME

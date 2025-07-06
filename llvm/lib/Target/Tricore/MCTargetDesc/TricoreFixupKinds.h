@@ -25,6 +25,9 @@ namespace Tricore {
     fixup_tricore_lo = FirstTargetFixupKind,
     fixup_tricore_hi,
     fixup_tricore_rel24,
+    fixup_tricore_abs24,
+
+    fixup_tricore_branch15,
     // Marker
     fixup_tricore_invalid,
     NumTargetFixupKinds = fixup_tricore_invalid - FirstTargetFixupKind

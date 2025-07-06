@@ -23488,10 +23488,14 @@ Value *CodeGenFunction::EmitTricoreBuiltinExpr(unsigned BuiltinID,
 
   // Find out if any arguments are required to be integer constant expressions.
   unsigned ICEArguments = 0;
+  ASTContext::GetBuiltinTypeError Error;
+  getContext().GetBuiltinType(BuiltinID, Error, &ICEArguments);
+  assert(Error == ASTContext::GE_None && "Should not codegen an error");
 
   if (BuiltinID == Tricore::BI__builtin_tricore_mtcr) {
     ICEArguments |= (1 << 0);
   }
+
   for (unsigned i = 0, e = E->getNumArgs(); i != e; i++) {
     // Handle aggregate argument, namely RVV tuple types in segment load/store
     if (hasAggregateEvaluationKind(E->getArg(i)->getType())) {
@@ -23503,8 +23507,21 @@ Value *CodeGenFunction::EmitTricoreBuiltinExpr(unsigned BuiltinID,
     Ops.push_back(EmitScalarOrConstFoldImmArg(ICEArguments, i, E));
   }
 
+  Intrinsic::ID ID = Intrinsic::not_intrinsic;
+
   switch (BuiltinID) {
   default:
     llvm_unreachable("unexpected builtin ID");
+  case Tricore::BI__builtin_tricore_mtcr:
+    ID = Intrinsic::tricore_mtcr;
+    break;
+  case Tricore::BI__builtin_tricore_insert:
+    ID = Intrinsic::tricore_insert;
+    break;
   }
+
+  assert(ID != Intrinsic::not_intrinsic);
+
+  llvm::Function *F = CGM.getIntrinsic(ID, {ResultType});
+  return Builder.CreateCall(F, Ops, "");
 }

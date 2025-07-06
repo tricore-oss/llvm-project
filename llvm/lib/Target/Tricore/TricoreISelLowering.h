@@ -29,6 +29,9 @@ enum NodeType : unsigned {
   RET_GLUE, // Return with a glue operand.
   LEA,
   MOVHA,
+  EXTR,
+  EXTRU,
+  INSERT,
 };
 }
 
@@ -53,6 +56,8 @@ public:
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
+
+  SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
 
   bool useSoftFloat() const override;
 };
