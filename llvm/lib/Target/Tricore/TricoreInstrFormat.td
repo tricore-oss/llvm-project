@@ -54,6 +54,14 @@ def InstFormatSRRS : InstFormat<37>;
 def InstFormatSSR : InstFormat<38>;
 def InstFormatSSRO : InstFormat<39>;
 
+// Load / store index mode.
+class IndexMode<bits<2> val> {
+  bits<2> Value = val;
+}
+def IndexModePost : IndexMode<0>;
+def IndexModePre  : IndexMode<1>;
+def IndexModeNone : IndexMode<2>;
+
 class TCInstCommon<dag outs, dag ins, string opcodestr, string argstr,
                    list<dag> pattern, InstFormat format> : Instruction {
   let Namespace = "Tricore";
@@ -106,6 +114,22 @@ class TCInstB<bits<8> op1, dag outs, dag ins, list<dag> pattern,
   let Inst{31 - 16} = disp24{15 - 0};
   let Inst{15 - 8} = disp24{7 - 0};
   let Inst{7 -0} = op1;
+}
+
+class TCInstBO<bits<8> op1, bits<4> op2, IndexMode mode, dag outs, dag ins, list<dag> pattern,
+               string opcodestr, string argstr = "">
+    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatBO> {
+  bits<4> a;
+  bits<4> b;
+  bits<10> off10;
+
+  let Inst{31 - 28} = off10{9 - 6};
+  let Inst{27 - 26} = mode.Value;
+  let Inst{25 - 22} = op2;
+  let Inst{21 - 16} = off10{5 - 0};
+  let Inst{15 - 12} = b;
+  let Inst{11 - 8} = a;
+  let Inst{7 - 0} = op1;
 }
 
 class TCInstBOL<bits<8> op1, dag outs, dag ins, list<dag> pattern,
@@ -352,21 +376,6 @@ class TCInstABS<bits<8> op1, dag outs, dag ins, list<dag> pattern,
   let Inst{25 - 22} = imm{13 - 10};
   let Inst{21 - 16} = imm{5 -0};
   let Inst{15 - 12} = imm{17 -14};
-  let Inst{11 - 8} = a;
-  let Inst{7 - 0} = op1;
-}
-
-class TCInstBO<bits<8> op1, bits<6> op2, dag outs, dag ins, list<dag> pattern,
-               string opcodestr, string argstr = "">
-    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatBO> {
-  bits<4> a;
-  bits<4> b;
-  bits<10> imm;
-
-  let Inst{31 - 28} = imm{9 - 6};
-  let Inst{27 - 22} = op2;
-  let Inst{21 - 16} = imm{5 - 0};
-  let Inst{15 - 12} = b;
   let Inst{11 - 8} = a;
   let Inst{7 - 0} = op1;
 }

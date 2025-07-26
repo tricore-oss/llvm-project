@@ -294,21 +294,14 @@ public:
            VK == TricoreMCExpr::VK_Tricore_24REL;
   }
 
-  template <int bits> bool isMemWithSimmOffset() const {
-    bool IsValid;
+  template <int bits, int mode> bool isMemWithSimmOffset() const {
     TricoreMCExpr::VariantKind VK = TricoreMCExpr::VK_Tricore_None;
     int64_t Imm;
     if (!isMem())
       return false;
     bool IsConstantImm = evaluateConstantImm(Mem.Off, Imm, VK);
-    if (!IsConstantImm)
-      assert(false); // IsValid = TricoreAsmParser::classifySymbolRef(getImm(),
-                     // VK);
-    else
-      IsValid = isInt<bits>(Imm);
-    return IsValid &&
-           ((IsConstantImm && VK == TricoreMCExpr::VK_Tricore_None) ||
-            VK == TricoreMCExpr::VK_Tricore_LO);
+    
+    return IsConstantImm && isInt<bits>(Imm) && Mem.Kind == mode;
   }
 
   template <int bits> bool isDisp() const {

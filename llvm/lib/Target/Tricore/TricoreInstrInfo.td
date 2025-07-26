@@ -142,18 +142,25 @@ def br_disp4 : TricoreBrDispImmOp<15>;
 def br_disp15 : TricoreBrDispImmOp<15>;
 def br_disp24 : TricoreBrDispImmOp<24>;
 
-def MemBOAsmOperand : AsmOperandClass {
-  let Name = "MemBO";
+class MemAsmOperand<int bitsNum, IndexMode mode> : AsmOperandClass {
+  let Name = "Mem"#bitsNum#"_"#mode.Value;
   let RenderMethod = "addMemOperands";
   let ParserMethod = "parseMemOperand";
-  let PredicateMethod = "isMemWithSimmOffset<10>";
-  let DiagnosticType = "InvalidMemBO";
+  let PredicateMethod = "isMemWithSimmOffset<"#bitsNum#","#mode.Value#">";
+  let DiagnosticType = "InvalidMem";
 }
 
-def MemBO : Operand<i32> {
+class MemBO<IndexMode mode> : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops AGPR, simm10);
-  let ParserMatchClass = MemBOAsmOperand;
+  let ParserMatchClass = MemAsmOperand<10, mode>;
+  let OperandType = "OPERAND_MEMORY";
+}
+
+def MemBOL : Operand<i32> {
+  let PrintMethod = "printMemOperand";
+  let MIOperandInfo = (ops AGPR, simm16);
+  let ParserMatchClass = MemAsmOperand<16, IndexModeNone>;
   let OperandType = "OPERAND_MEMORY";
 }
 
@@ -186,7 +193,8 @@ def lo16AllZero : PatLeaf<(i32 imm), [{
 }],
                           hi16>;
 
-def AddrRegImm : ComplexPattern<iPTR, 2, "SelectAddrRegImm">;
+def AddrRegImmBO : ComplexPattern<iPTR, 2, "SelectAddrRegImmBO">;
+def AddrRegImmBOL : ComplexPattern<iPTR, 2, "SelectAddrRegImmBOL">;
 
 // Target-independent type requirements, but with target-specific formats.
 def SDT_CallSeqStart : SDCallSeqStart<[SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
@@ -243,18 +251,6 @@ let Defs = [A10], Uses = [A10] in {
                               [(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
-let hasSideEffects = 0, mayLoad = 1, mayStore = 0 in {
-  class Load_so<bits<6> op2, string opcodestr, RegisterClass RC = DGPR>
-      : TCInstBO<0x09, op2, (outs RC:$a), (ins(MemBO $b, $imm):$addr), [],
-                 opcodestr, "$a, $addr">;
-}
-
-let hasSideEffects = 0, mayLoad = 0, mayStore = 1 in {
-  class Store_so<bits<6> op2, string opcodestr, RegisterClass RC = DGPR>
-      : TCInstBO<0x89, op2, (outs), (ins RC:$a, (MemBO $b, $imm):$addr), [],
-                 opcodestr, "$addr, $a">;
-}
-
 //===--
 // Context
 //===
@@ -272,30 +268,66 @@ def : Pat<(tricore_call texternalsym:$disp24), (CALL_B texternalsym:$disp24)>;
 //  Load/Store instructions
 //===----------------------------------------------------------------------===//
 
-def LDB_SO : Load_so<0x20, "ld.b">;
-def LDH_SO : Load_so<0x22, "ld.h">;
-def LDW_SO : Load_so<0x24, "ld.w">;
-def LDD_SO : Load_so<0x25, "ld.d">;
-def LDA_SO : Load_so<0x26, "ld.a", AGPR>;
+class LoadBO<int op2, IndexMode mode, string opcodestr, RegisterClass RC = DGPR>
+    : TCInstBO<0x9, op2, mode, (outs RC:$a),
+               (ins(MemBO<mode> $b, $off10):$addr), [], opcodestr, "$a, $addr">;
+class LoadBOL<int op1, string opcodestr, RegisterClass RC = DGPR>
+    : TCInstBOL<op1, (outs RC:$a), (ins(MemBOL $b, $off16):$addr), [],
+                opcodestr, "$a, $addr">;
 
-def STB_SO : Store_so<0x20, "st.b">;
-def STH_SO : Store_so<0x22, "st.h">;
-def STW_SO : Store_so<0x24, "st.w">;
-def STD_SO : Store_so<0x25, "st.d">;
-def STA_SO : Store_so<0x26, "st.a", AGPR>;
+multiclass Load<int bo_op2, int bol_op1, string opcodestr,
+                RegisterClass RC = DGPR> {
+  let hasSideEffects = 0, mayLoad = 1, mayStore = 0 in {
+    def post : LoadBO<bo_op2, IndexModePost, opcodestr, RC>;
+    def pre : LoadBO<bo_op2, IndexModePre, opcodestr, RC>;
+    def bo : LoadBO<bo_op2, IndexModeNone, opcodestr, RC>;
+    if bol_op1 then {
+      def bol : LoadBOL<bol_op1, opcodestr, RC>;
+    }
+  }
+}
+
+let hasSideEffects = 0, mayLoad = 0, mayStore = 1 in {
+  class Store_so<bits<4> op2, string opcodestr, RegisterClass RC = DGPR>
+      : TCInstBO<0x89, op2, IndexModeNone, (outs),
+                 (ins RC:$a, (MemBO<IndexModeNone> $b, $off10):$addr), [],
+                 opcodestr, "$addr, $a">;
+}
+
+defm LDB  : Load<0x0, 0x79, "ld.b">;
+defm LDBU : Load<0x1, 0x39, "ld.bu">;
+defm LDH  : Load<0x2, 0xC9, "ld.h">;
+defm LDHU : Load<0x3, 0xB9, "ld.hu">;
+defm LDW  : Load<0x4, 0x19, "ld.w">;
+defm LDD  : Load<0x5, 0x00, "ld.d", EGPR>;
+defm LDA  : Load<0x6, 0x99, "ld.a", AGPR>;
+defm LDDA : Load<0x7, 0x00, "ld.d", PGPR>;
+// defm LDDD : Load<0x9, 0x0, "ld.d", QGPR>;
+
+def STB_SO : Store_so<0x0, "st.b">;
+def STH_SO : Store_so<0x2, "st.h">;
+def STW_SO : Store_so<0x4, "st.w">;
+def STD_SO : Store_so<0x5, "st.d">;
+def STA_SO : Store_so<0x6, "st.a", AGPR>;
 
 // Load
-class LdPat<PatFrag LoadOp, TCInstCommon Inst, ValueType vt = i32>
-    : Pat<(vt(LoadOp AddrRegImm:$addr)), (Inst AddrRegImm:$addr)>;
+multiclass LdPat<PatFrag LoadOp, string InstStr> {
+  def : Pat<(i32(LoadOp AddrRegImmBOL:$addr)),
+            (!cast<Instruction>(InstStr#bol) AddrRegImmBOL:$addr)>;
+  def : Pat<(i32(LoadOp AddrRegImmBO:$addr)),
+            (!cast<Instruction>(InstStr#bo) AddrRegImmBO:$addr)>;
+}
 
-def : LdPat<sextloadi8, LDB_SO>;
-def : LdPat<sextloadi16, LDH_SO>;
-def : LdPat<load, LDW_SO>;
+defm : LdPat<sextloadi8, "LDB">;
+defm : LdPat<zextloadi8, "LDBU">;
+defm : LdPat<sextloadi16, "LDH">;
+defm : LdPat<zextloadi16, "LDHU">;
+defm : LdPat<load, "LDW">;
 
 class StPat<PatFrag StoreOp, TCInstCommon Inst, ValueType vt = i32,
             RegisterClass RC = DGPR>
-    : Pat<(StoreOp(vt RC:$a), AddrRegImm:$addr), (Inst vt:$a,
-                                                     AddrRegImm:$addr)>;
+    : Pat<(StoreOp(vt RC:$a), AddrRegImmBO:$addr), (Inst vt:$a,
+                                                       AddrRegImmBO:$addr)>;
 
 def : StPat<truncstorei8, STB_SO>;
 def : StPat<truncstorei16, STH_SO>;
@@ -480,11 +512,10 @@ def : Pat<(add(i64 EGPR:$a), (i64 EGPR:$b)),
           )>;
 def : Pat<(add(i64 EGPR:$a), simm9_64:$const9),
           (i64(INSERT_SUBREG(INSERT_SUBREG(i64(IMPLICIT_DEF)),
-               (i32(ADDX_RC(i32(EXTRACT_SUBREG EGPR:$a, sub_even)),
-                   (lo16 simm9_64:$const9))),
-               sub_even),
-              (i32(ADDC_RC(i32(EXTRACT_SUBREG EGPR:$a, sub_odd)),
-                  (i32 0))),
+                   (i32(ADDX_RC(i32(EXTRACT_SUBREG EGPR:$a, sub_even)),
+                       (lo16 simm9_64:$const9))),
+                   sub_even),
+              (i32(ADDC_RC(i32(EXTRACT_SUBREG EGPR:$a, sub_odd)), (i32 0))),
               sub_odd
 
           ))>;
