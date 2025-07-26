@@ -19,6 +19,40 @@ class TricoreBuiltin<string prototype, string features = ""> : TargetBuiltin {
 }
 
 let Attributes = [NoThrow, Const] in {
-  def mtcr : TricoreBuiltin<"void(unsigned int, unsigned int)">;
-  def insert : TricoreBuiltin<"unsigned int(unsigned int, unsigned int, unsigned int, unsigned int)">;
+  /* Core registers */
+  def mtcr : TricoreBuiltin<"void(_Constant unsigned int, unsigned int)">;
+  def mfcr : TricoreBuiltin<"unsigned int(_Constant unsigned int)">;
+  let Features = "TC18" in {
+    def mtdcr : TricoreBuiltin<"void(_Constant unsigned int, unsigned long long int)">;
+    def mfdcr : TricoreBuiltin<"unsigned long long int(_Constant unsigned int)">;
+  }
+
+  /* Bit manipulation */
+  def insert : TricoreBuiltin<"unsigned int(unsigned int, unsigned int, unsigned int, _Constant unsigned int)">;
+  def extr : TricoreBuiltin<"int(int, unsigned int, unsigned int)">;
+  def extr_u : TricoreBuiltin<"unsigned int(unsigned int, unsigned int, unsigned int)">;
+  def dextr_u : TricoreBuiltin<"unsigned int(unsigned long long int, unsigned int, unsigned int)">;
+  def shuffle : TricoreBuiltin<"unsigned int(unsigned int, _Constant unsigned int)">;
+  def imask : TricoreBuiltin<"long long int(unsigned int, unsigned int, _Constant unsigned int)">;
+
+  /* Atomits */
+  def cmpswap_w : TricoreBuiltin<"int(int *, int, int)">;
+  def ldmst : TricoreBuiltin<"void(int *, int, int)">;
+  def imask_ldmst : TricoreBuiltin<"void(int *, int, unsigned int, _Constant unsigned int)">;
+  def swap_w : TricoreBuiltin<"void(int *, int)">;
+  def swapmsk_w : TricoreBuiltin<"void(int*, int, unsigned int)">;
+  def imask_swapmsk_w : TricoreBuiltin<"void(int*, int, unsigned int, _Constant unsigned int)">;
+
+  /* Interrupts */
+  def enable : TricoreBuiltin<"void()">;
+  def disable : TricoreBuiltin<"void()">;
+  def restore : TricoreBuiltin<"void(unsigned int)">;
+
+  /* System operations */
+  def dsync : TricoreBuiltin<"void()">;
+  def isync : TricoreBuiltin<"void()">;
+  def syscall : TricoreBuiltin<"void(_Constant unsigned int)">;
+  def hvcall : TricoreBuiltin<"void(_Constant unsigned int)">;
+  def nop : TricoreBuiltin<"void()">;
+  def wait : TricoreBuiltin<"void()">;
 }
