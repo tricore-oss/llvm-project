@@ -16,6 +16,7 @@
 #define LLVM_LIB_TARGET_SPARC_SPARCISELLOWERING_H
 
 #include "Tricore.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/TargetLowering.h"
 
 namespace llvm {
@@ -40,6 +41,9 @@ class TricoreTargetLowering : public TargetLowering {
 
 public:
   TricoreTargetLowering(const TargetMachine &TM, const TricoreSubtarget &STI);
+
+  const char *getTargetNodeName(unsigned Opcode) const override;
+
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
                                bool isVarArg,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -56,8 +60,18 @@ public:
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerConstant(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
+  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                          SelectionDAG &DAG) const override;
+
+                          std::pair<unsigned, const TargetRegisterClass *>
+getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                  StringRef Constraint,
+                                                  MVT VT) const override;
 
   bool useSoftFloat() const override;
 };

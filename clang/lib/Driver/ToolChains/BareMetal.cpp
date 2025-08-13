@@ -24,6 +24,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Triple.h"
 
 #include <sstream>
 
@@ -162,6 +163,11 @@ static bool isPPCBareMetal(const llvm::Triple &Triple) {
          Triple.getEnvironment() == llvm::Triple::EABI;
 }
 
+static bool isTricoreBareMetal(const llvm::Triple &Triple) {
+  return Triple.getArch() == llvm::Triple::tricore && Triple.getOS() == llvm::Triple::UnknownOS &&
+         Triple.getEnvironmentName() == "elf";
+}
+
 static void
 findMultilibsFromYAML(const ToolChain &TC, const Driver &D,
                       StringRef MultilibPath, const ArgList &Args,
@@ -254,7 +260,8 @@ void BareMetal::findMultilibs(const Driver &D, const llvm::Triple &Triple,
 
 bool BareMetal::handlesTarget(const llvm::Triple &Triple) {
   return arm::isARMEABIBareMetal(Triple) || isAArch64BareMetal(Triple) ||
-         isRISCVBareMetal(Triple) || isPPCBareMetal(Triple);
+         isRISCVBareMetal(Triple) || isPPCBareMetal(Triple) ||
+         isTricoreBareMetal(Triple);
 }
 
 Tool *BareMetal::buildLinker() const {

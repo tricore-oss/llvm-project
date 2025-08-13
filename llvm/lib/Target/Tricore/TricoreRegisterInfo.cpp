@@ -16,6 +16,7 @@
 #include "MCTargetDesc/TricoreBaseInfo.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
 #include "Tricore.h"
+#include "TricoreFrameLowering.h"
 #include "TricoreMachineFunctionInfo.h"
 #include "TricoreSubtarget.h"
 #include "TricoreTargetMachine.h"
@@ -88,6 +89,7 @@ bool TricoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   Register FrameReg;
   StackOffset Offset =
       getFrameLowering(MF)->getFrameIndexReference(MF, FrameIndex, FrameReg);
+  Offset += StackOffset::getFixed(MI.getOperand(FIOperandNum + 1).getImm());
 
   if (!isInt<32>(Offset.getFixed())) {
     report_fatal_error(
@@ -103,11 +105,21 @@ bool TricoreRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
           "Frame offsets outside of the signed 12-bit range not supported");
     }
   }
+  if (TricoreII::getFormat(MI.getDesc().TSFlags) == TricoreII::InstFormatBOL) {
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
+    if (isInt<16>(Offset.getFixed())) {
+      MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset.getFixed());
+    } else {
+      report_fatal_error(
+          "Frame offsets outside of the signed 16-bit range not supported");
+    }
+  }
 
   return false;
 }
 
 Register
 TricoreRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  return Tricore::A10;
+  const TricoreFrameLowering *TFI = getFrameLowering(MF);
+  return TFI->hasFP(MF) ? Tricore::A14 : Tricore::A10;
 }

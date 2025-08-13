@@ -1,4 +1,5 @@
-//===- TricoreMachineFunctionInfo.h - Tricore Machine Function Info -*- C++ -*-===//
+//===- TricoreMachineFunctionInfo.h - Tricore Machine Function Info -*- C++
+//-*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -16,19 +17,38 @@
 
 namespace llvm {
 
-  class TricoreMachineFunctionInfo : public MachineFunctionInfo {
-    virtual void anchor();
-  private:
+class TricoreMachineFunctionInfo : public MachineFunctionInfo {
+  virtual void anchor();
 
-  public:
-    TricoreMachineFunctionInfo() {}
-    TricoreMachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {}
+private:
+  /// Indicates if arguments passed using the stack are being
+  /// used inside the function.
+  bool HasStackArgs;
 
-    MachineFunctionInfo *
-    clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
-          const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
-        const override;
-  };
-}
+  /// Whether or not the function is an interrupt handler.
+  bool IsInterruptHandler;
+
+  /// FrameIndex for start of varargs area.
+  int VarArgsFrameIndex;
+
+public:
+  TricoreMachineFunctionInfo() {}
+  TricoreMachineFunctionInfo(const Function &F,
+                             const TargetSubtargetInfo *STI) {}
+
+  MachineFunctionInfo *
+  clone(BumpPtrAllocator &Allocator, MachineFunction &DestMF,
+        const DenseMap<MachineBasicBlock *, MachineBasicBlock *> &Src2DstMBB)
+      const override;
+
+  bool getHasStackArgs() const { return HasStackArgs; }
+  void setHasStackArgs(bool B) { HasStackArgs = B; }
+
+  bool isInterruptHandler() const { return IsInterruptHandler; }
+
+  int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
+  void setVarArgsFrameIndex(int Idx) { VarArgsFrameIndex = Idx; }
+};
+} // namespace llvm
 
 #endif

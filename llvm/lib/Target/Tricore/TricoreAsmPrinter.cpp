@@ -70,12 +70,26 @@ public:
 private:
   bool lowerOperand(const MachineOperand &MO, MCOperand &MCOp) const;
   bool lowerToMCInst(const MachineInstr *MI, MCInst &OutMI);
+
+  // tblgen'erated.
+  bool lowerPseudoInstExpansion(const MachineInstr *MI, MCInst &Inst);
 };
 } // end of anonymous namespace
+
+// Simple pseudo-instructions have their lowering (with expansion to real
+// instructions) auto-generated.
+#include "TricoreGenMCPseudoLowering.inc"
 
 void TricoreAsmPrinter::emitInstruction(const MachineInstr *MI) {
 
   MCInst OutInst;
+
+  // Do any auto-generated pseudo lowerings.
+  if (MCInst OutInst; lowerPseudoInstExpansion(MI, OutInst)) {
+    EmitToStreamer(*OutStreamer, OutInst);
+    return;
+  }
+
   if (!lowerToMCInst(MI, OutInst))
     EmitToStreamer(*OutStreamer, OutInst);
 }
@@ -153,6 +167,12 @@ static MCOperand lowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym,
   case TricoreII::MO_None:
     Kind = TricoreMCExpr::VK_Tricore_None;
     break;
+  case TricoreII::MO_LO:
+    Kind = TricoreMCExpr::VK_Tricore_LO;
+    break;
+  case TricoreII::MO_HI:
+    Kind = TricoreMCExpr::VK_Tricore_HI;
+    break;
   case TricoreII::MO_CALL:
     Kind = TricoreMCExpr::VK_Tricore_24REL;
     break;
@@ -197,6 +217,12 @@ bool TricoreAsmPrinter::lowerOperand(const MachineOperand &MO,
   case MachineOperand::MO_BlockAddress:
     MCOp = lowerSymbolOperand(MO, GetBlockAddressSymbol(MO.getBlockAddress()),
                               *this);
+    break;
+  case MachineOperand::MO_ConstantPoolIndex:
+    MCOp = lowerSymbolOperand(MO, GetCPISymbol(MO.getIndex()), *this);
+    break;
+  case MachineOperand::MO_JumpTableIndex:
+    MCOp = lowerSymbolOperand(MO, GetJTISymbol(MO.getIndex()), *this);
     break;
   default:
     report_fatal_error("lowerOperand: unknown operand type");

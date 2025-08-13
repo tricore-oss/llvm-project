@@ -6777,9 +6777,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
       case llvm::Triple::csky:
         TC = std::make_unique<toolchains::CSKYToolChain>(*this, Target, Args);
         break;
-      case llvm::Triple::tricore:
-        TC = std::make_unique<toolchains::TricoreToolChain>(*this, Target, Args);
-        break;
+      // case llvm::Triple::tricore:
+      //   TC = std::make_unique<toolchains::TricoreToolChain>(*this, Target, Args);
+      //   break;
       default:
         if (toolchains::BareMetal::handlesTarget(Target))
           TC = std::make_unique<toolchains::BareMetal>(*this, Target, Args);

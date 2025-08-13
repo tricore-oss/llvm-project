@@ -1,5 +1,6 @@
 #include "Tricore.h"
 #include "clang/Basic/Builtins.h"
+#include "clang/Basic/MacroBuilder.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -21,7 +22,9 @@ void TricoreTargetInfo::fillValidTuneCPUList(
 }
 
 void TricoreTargetInfo::getTargetDefines(const LangOptions &Opts,
-                                         MacroBuilder &Builder) const {}
+                                         MacroBuilder &Builder) const {
+  Builder.defineMacro("__TRICORE__");
+}
 
 static constexpr Builtin::Info BuiltinInfo[] = {
 #define BUILTIN(ID, TYPE, ATTRS)                                               \
@@ -69,8 +72,6 @@ std::string
 TricoreTargetInfo::convertConstraint(const char *&Constraint) const {
   std::string R;
   switch (*Constraint) {
-  case 'r':
-    return std::string("d");
   default:
     return std::string(1, *Constraint);
   }

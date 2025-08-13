@@ -3,8 +3,8 @@ def CSR_EABI : CalleeSavedRegs<(add)> {
 }
 
 def RetCC_TricoreEABI : CallingConv<[
-  CCIfType<[i32], CCAssignToReg<[D2]>>,
-  CCIfType<[i64], CCAssignToReg<[E2]>>,
+  CCIfType<[i32], CCAssignToReg<[D2, D3]>>,
+  CCIfType<[i64], CCAssignToRegWithShadow<[D2], [D3]>>,
   CCIfType<[f32], CCAssignToReg<[D2]>>,
   CCIfType<[f64], CCAssignToReg<[E2]>>
 ]>;

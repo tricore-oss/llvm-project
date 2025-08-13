@@ -53,22 +53,27 @@ void TricoreInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                    bool RenamableSrc) const {
 
   if (Tricore::DGPRRegClass.contains(DestReg, SrcReg)) {
-    BuildMI(MBB, MI, DL, get(Tricore::MOV_RR), DestReg)
+    BuildMI(MBB, MI, DL, get(Tricore::MOVrr), DestReg)
         .addReg(SrcReg, getKillRegState(KillSrc));
   }
   if (Tricore::DGPRRegClass.contains(DestReg) &&
       Tricore::AGPRRegClass.contains(SrcReg)) {
-    BuildMI(MBB, MI, DL, get(Tricore::MOVD_RR), DestReg)
+    BuildMI(MBB, MI, DL, get(Tricore::MOVDrr), DestReg)
         .addReg(SrcReg, getKillRegState(KillSrc));
   }
   if (Tricore::AGPRRegClass.contains(DestReg, SrcReg)) {
-    BuildMI(MBB, MI, DL, get(Tricore::MOVAA_RR), DestReg)
+    BuildMI(MBB, MI, DL, get(Tricore::MOVAArr), DestReg)
         .addReg(SrcReg, getKillRegState(KillSrc));
   }
   if (Tricore::AGPRRegClass.contains(DestReg) &&
       Tricore::DGPRRegClass.contains(SrcReg)) {
-    BuildMI(MBB, MI, DL, get(Tricore::MOVA_RR), DestReg)
+    BuildMI(MBB, MI, DL, get(Tricore::MOVArr), DestReg)
         .addReg(SrcReg, getKillRegState(KillSrc));
+  }
+  if (Tricore::EGPRRegClass.contains(DestReg, SrcReg)) {
+    BuildMI(MBB, MI, DL, get(Tricore::MOVEDDrr), DestReg)
+        .addReg(RI.getSubReg(SrcReg, 2), getKillRegState(KillSrc))
+        .addReg(RI.getSubReg(SrcReg, 1), getKillRegState(KillSrc));
   }
 }
 
@@ -113,7 +118,7 @@ bool TricoreInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
 
   // Handle single unconditional branch
   if (CondBranch == MBB.end()) {
-    TBB = Barrier->getOperand(0).getMBB();
+    TBB = Barrier->getOperand(Barrier->getNumExplicitOperands() - 1).getMBB();
     return false;
   }
 
@@ -122,13 +127,14 @@ bool TricoreInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     Cond.push_back(MachineOperand::CreateImm(CondBranch->getOpcode()));
     Cond.push_back(CondBranch->getOperand(0));
     Cond.push_back(CondBranch->getOperand(1));
-    TBB = CondBranch->getOperand(2).getMBB();
+    TBB = CondBranch->getOperand(CondBranch->getNumExplicitOperands() - 1).getMBB();
     return false;
   }
 
   // Handle conditional branch followed by unconditional branch
-  TBB = CondBranch->getOperand(CondBranch->getNumOperands() - 1).getMBB();
-  FBB = Barrier->getOperand(Barrier->getNumOperands() - 1).getMBB();
+  TBB =
+      CondBranch->getOperand(CondBranch->getNumExplicitOperands() - 1).getMBB();
+  FBB = Barrier->getOperand(Barrier->getNumExplicitOperands() - 1).getMBB();
   Cond.push_back(MachineOperand::CreateImm(CondBranch->getOpcode()));
   Cond.push_back(CondBranch->getOperand(0));
   Cond.push_back(CondBranch->getOperand(1));
@@ -208,15 +214,86 @@ bool TricoreInstrInfo::foldImmediate(MachineInstr &UseMI, MachineInstr &DefMI,
   switch (DefMI.getOpcode()) {
   default:
     return false;
-  case Tricore::MOV_RLC:
-    imm = DefMI.getOperand(1).getImm();
+    // case Tricore::MOVrlc:
+    //   imm = DefMI.getOperand(1).getImm();
   }
-
-
 
   bool DeleteDef = !MRI->hasOneNonDBGUse(Reg);
   if (DeleteDef)
     DefMI.eraseFromParent();
 
   return true;
+}
+
+void TricoreInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
+                                           MachineBasicBlock::iterator I,
+                                           Register SrcReg, bool isKill, int FI,
+                                           const TargetRegisterClass *RC,
+                                           const TargetRegisterInfo *TRI,
+                                           Register VReg,
+                                           MachineInstr::MIFlag Flags) const {
+  DebugLoc DL;
+  if (I != MBB.end())
+    DL = I->getDebugLoc();
+
+  MachineFunction *MF = MBB.getParent();
+  const MachineFrameInfo &MFI = MF->getFrameInfo();
+  MachineMemOperand *MMO = MF->getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(*MF, FI), MachineMemOperand::MOStore,
+      MFI.getObjectSize(FI), MFI.getObjectAlign(FI));
+
+  // On the order of operands here: think "[FrameIdx + 0] = SrcReg".
+  if (RC == &Tricore::DGPRRegClass)
+    BuildMI(MBB, I, DL, get(Tricore::STW_SO))
+        .addFrameIndex(FI)
+        .addImm(0)
+        .addReg(SrcReg, getKillRegState(isKill))
+        .addMemOperand(MMO);
+  else if (RC == &Tricore::AGPRRegClass)
+    BuildMI(MBB, I, DL, get(Tricore::STA_SO))
+        .addFrameIndex(FI)
+        .addImm(0)
+        .addReg(SrcReg, getKillRegState(isKill))
+        .addMemOperand(MMO);
+  else if (RC == &Tricore::EGPRRegClass)
+    BuildMI(MBB, I, DL, get(Tricore::STD_SO))
+        .addFrameIndex(FI)
+        .addImm(0)
+        .addReg(SrcReg, getKillRegState(isKill))
+        .addMemOperand(MMO);
+  else
+    llvm_unreachable("Can't store this register to stack slot");
+}
+
+void TricoreInstrInfo::loadRegFromStackSlot(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI, Register DstReg,
+    int FI, const TargetRegisterClass *RC, const TargetRegisterInfo *TRI,
+    Register VReg, MachineInstr::MIFlag Flags) const {
+  DebugLoc DL;
+  if (MBBI != MBB.end())
+    DL = MBBI->getDebugLoc();
+
+  MachineFunction *MF = MBB.getParent();
+  const MachineFrameInfo &MFI = MF->getFrameInfo();
+  MachineMemOperand *MMO = MF->getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(*MF, FI), MachineMemOperand::MOLoad,
+      MFI.getObjectSize(FI), MFI.getObjectAlign(FI));
+
+  if (RC == &Tricore::DGPRRegClass)
+    BuildMI(MBB, MBBI, DL, get(Tricore::LDWbo), DstReg)
+        .addFrameIndex(FI)
+        .addImm(0)
+        .addMemOperand(MMO);
+  else if (RC == &Tricore::AGPRRegClass)
+    BuildMI(MBB, MBBI, DL, get(Tricore::LDAbo), DstReg)
+        .addFrameIndex(FI)
+        .addImm(0)
+        .addMemOperand(MMO);
+  else if (RC == &Tricore::EGPRRegClass)
+    BuildMI(MBB, MBBI, DL, get(Tricore::LDDbo), DstReg)
+        .addFrameIndex(FI)
+        .addImm(0)
+        .addMemOperand(MMO);
+  else
+    llvm_unreachable("Can't load this register from stack slot");
 }

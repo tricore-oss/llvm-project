@@ -8,9 +8,11 @@
 
 #include "InputFiles.h"
 #include "OutputSections.h"
+#include "Relocations.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Support/ELFAttributes.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -61,12 +63,12 @@ static uint32_t extractBits(uint64_t v, uint32_t begin, uint32_t end) {
   return (v & ((1ULL << (begin + 1)) - 1)) >> end;
 }
 
-static uint32_t setLO12_I(uint32_t insn, uint32_t imm) {
-  return (insn & 0xfffff) | (imm << 20);
+static uint32_t setRLC(uint32_t insn, uint32_t imm) {
+  return (insn & 0xffff) | (imm << 16);
 }
-static uint32_t setLO12_S(uint32_t insn, uint32_t imm) {
-  return (insn & 0x1fff07f) | (extractBits(imm, 11, 5) << 25) |
-         (extractBits(imm, 4, 0) << 7);
+static uint32_t setBOL(uint32_t insn, uint32_t imm) {
+  return (insn & 0xFFFF) | (extractBits(imm, 0, 5) << 16) |
+         (extractBits(imm, 10, 15) << 22) | (extractBits(imm, 6, 9) << 28);
 }
 
 Tricore::Tricore(Ctx &ctx) : TargetInfo(ctx) {
@@ -158,8 +160,18 @@ RelType Tricore::getDynRel(RelType type) const {
 RelExpr Tricore::getRelExpr(const RelType type, const Symbol &s,
                             const uint8_t *loc) const {
   switch (type) {
+  case R_TRICORE_32ABS:
+    return R_ABS;
+  case R_TRICORE_32REL:
+    return R_PC;
+  case R_TRICORE_24ABS:
+    return R_ABS;
   case R_TRICORE_24REL:
     return R_PC;
+  case R_TRICORE_HI:
+  case R_TRICORE_LO:
+  case R_TRICORE_LO2:
+    return R_ABS;
   default:
     Err(ctx) << getErrorLoc(ctx, loc) << "unknown relocation (" << type.v
              << ") against symbol " << &s;
@@ -172,6 +184,11 @@ void Tricore::relocate(uint8_t *loc, const Relocation &rel,
   const unsigned bits = ctx.arg.wordsize * 8;
 
   switch (rel.type) {
+  case R_TRICORE_32ABS: {
+    checkInt(ctx, loc, val, 32, rel);
+    write32le(loc, (uint32_t)val);
+    break;
+  }
   case R_TRICORE_24REL: {
     uint32_t disp24 = val >> 1;
     uint32_t inst = (read32le(loc) & 0xFF);
@@ -179,6 +196,25 @@ void Tricore::relocate(uint8_t *loc, const Relocation &rel,
     checkInt(ctx, loc, val >> 1, 24, rel);
     write32le(loc,
               inst | ((disp24 & 0xFFFF) << 16) | ((disp24 & 0xFF0000) >> 8));
+    break;
+  }
+
+  case R_TRICORE_HI: {
+    uint32_t off16 = hi16(val);
+    checkInt(ctx, loc, val, 32, rel);
+    write32le(loc, setRLC(read32le(loc), off16));
+    break;
+  }
+  case R_TRICORE_LO: {
+    uint32_t off16 = lo16(val);
+    checkInt(ctx, loc, val, 32, rel);
+    write32le(loc, setRLC(read32le(loc), off16));
+    break;
+  }
+  case R_TRICORE_LO2: {
+    uint32_t off16 = lo16(val);
+    checkInt(ctx, loc, val, 32, rel);
+    write32le(loc, setBOL(read32le(loc), off16));
     break;
   }
   default:

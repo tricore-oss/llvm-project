@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "TricoreISelLowering.h"
+#include "MCTargetDesc/TricoreBaseInfo.h"
 #include "MCTargetDesc/TricoreMCExpr.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
 #include "TricoreCallingConv.h"
@@ -21,6 +22,7 @@
 #include "TricoreSubtarget.h"
 #include "TricoreTargetMachine.h"
 #include "TricoreTargetObjectFile.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -31,6 +33,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGen/TargetCallingConv.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
@@ -38,11 +41,15 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <optional>
+#include <ratio>
 using namespace llvm;
 
 #include "TricoreGenCallingConv.inc"
@@ -56,8 +63,8 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
 
   addRegisterClass(MVT::i32, &Tricore::DGPRRegClass);
   addRegisterClass(MVT::v2i32, &Tricore::EGPRRegClass);
-  addRegisterClass(MVT::i64, &Tricore::EGPRRegClass);
-  // addRegisterClass(MVT::i32, &Tricore::AddrRegsRegClass);
+  // addRegisterClass(MVT::i64, &Tricore::EGPRRegClass);
+  //  addRegisterClass(MVT::i32, &Tricore::AddrRegsRegClass);
 
   // Compute derived properties from the register classes.
   computeRegisterProperties(STI.getRegisterInfo());
@@ -79,11 +86,27 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
 
   setOperationAction(ISD::ADDE, MVT::i32, Legal);
   setOperationAction(ISD::ADDC, MVT::i32, Legal);
+  setOperationAction({ISD::ROTL, ISD::ROTR}, MVT::i32, Expand);
+  setOperationAction(ISD::CTTZ, MVT::i32, Expand);
+  setOperationAction({ISD::SHL_PARTS, ISD::SRA_PARTS, ISD::SRL_PARTS}, MVT::i32,
+                     Expand); // TODO: Optimize
 
-  setOperationAction(ISD::MUL, MVT::i64, LibCall);
   // BRCC
   // setOperationAction(ISD::BR_CC, MVT::i32, Expand);
+  setOperationAction(ISD::BR_JT, MVT::Other, Expand);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
+
+  setOperationAction(ISD::VASTART, MVT::Other, Custom);
+  setOperationAction(ISD::VAARG, MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY, MVT::Other, Expand);
+  setOperationAction(ISD::VAEND, MVT::Other, Expand);
+  setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
+  setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
+
+  // Tricore does not have i1 sign extending load.
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
+  }
 
   if (!Subtarget.hasSoftFloat()) {
     addRegisterClass(MVT::f32, &Tricore::DGPRRegClass);
@@ -96,6 +119,23 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
 
 bool TricoreTargetLowering::useSoftFloat() const {
   return Subtarget.hasSoftFloat();
+}
+
+const char *TricoreTargetLowering::getTargetNodeName(unsigned Opcode) const {
+#define NODE_NAME_CASE(NODE)                                                   \
+  case TricoreISD::NODE:                                                       \
+    return "TricoreISD::" #NODE;
+  // clang-format off
+  switch ((TricoreISD::NodeType)Opcode) {
+  case TricoreISD::FIRST_NUMBER:
+    break;
+    NODE_NAME_CASE(CALL)
+    NODE_NAME_CASE(TAIL)
+    default:
+    break;
+  }
+  // clang-format on
+  return nullptr;
 }
 
 SDValue TricoreTargetLowering::LowerFormalArguments(
@@ -155,6 +195,14 @@ SDValue TricoreTargetLowering::LowerFormalArguments(
     InVals.push_back(ArgValue);
   }
 
+  if (IsVarArg) {
+    MachineFrameInfo &MFI = MF.getFrameInfo();
+    TricoreMachineFunctionInfo *TFI = MF.getInfo<TricoreMachineFunctionInfo>();
+    int VaArgOffset = CCInfo.getStackSize();
+    int FI = MFI.CreateFixedObject(32, VaArgOffset, true);
+    TFI->setVarArgsFrameIndex(FI);
+  }
+
   return Chain;
 }
 
@@ -177,7 +225,29 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), ArgLocs,
                  *DAG.getContext());
-  CCInfo.AnalyzeCallOperands(Outs, CC_TricoreEABI);
+  // Tricore EABI requires Vargs to be passed on stack
+  // Only analyze fixed arguments via CC and pass the rest on the stack
+  if (IsVarArg) {
+    SmallVector<ISD::OutputArg, 16> ArgOuts;
+    ArgOuts.resize(CLI.NumFixedArgs);
+    std::copy(Outs.begin(), Outs.begin() + CLI.NumFixedArgs, ArgOuts.begin());
+    CCInfo.AnalyzeCallOperands(ArgOuts, CC_TricoreEABI);
+
+    unsigned ValNo = CLI.NumFixedArgs;
+    for (auto *Arg = Outs.begin() + CLI.NumFixedArgs; Arg != Outs.end();
+         Arg++) {
+      Align Alignment = Arg->Flags.isByVal() ? Arg->Flags.getNonZeroByValAlign()
+                                             : Arg->Flags.getNonZeroMemAlign();
+      int Size = Arg->Flags.isByVal() ? Arg->Flags.getByValSize()
+                                      : Arg->VT.getStoreSize();
+      int64_t Offset = CCInfo.AllocateStack(Size, Alignment);
+
+      CCInfo.addLoc(CCValAssign::getMem(ValNo++, Arg->VT, Offset, Arg->VT,
+                                        CCValAssign::Full));
+    }
+  } else {
+    CCInfo.AnalyzeCallOperands(Outs, CC_TricoreEABI);
+  }
 
   // isTailCall = isTailCall && IsEligibleForTailCallOptimization(
   //                                CCInfo, CLI, DAG.getMachineFunction());
@@ -192,12 +262,12 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   // Create local copies for byval args.
   SmallVector<SDValue, 8> ByValArgs;
-  for (unsigned i = 0, e = Outs.size(); i != e; ++i) {
-    ISD::ArgFlagsTy Flags = Outs[i].Flags;
+  for (unsigned I = 0; I != Outs.size(); ++I) {
+    ISD::ArgFlagsTy Flags = Outs[I].Flags;
     if (!Flags.isByVal())
       continue;
 
-    SDValue Arg = OutVals[i];
+    SDValue Arg = OutVals[I];
     unsigned Size = Flags.getByValSize();
     Align Alignment = Flags.getNonZeroByValAlign();
 
@@ -225,23 +295,21 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
   SmallVector<std::pair<Register, SDValue>, 8> RegsToPass;
   SmallVector<SDValue, 8> MemOpChains;
   SDValue StackPtr;
-  for (unsigned i = 0, j = 0, e = ArgLocs.size(), OutIdx = 0; i != e;
-       ++i, ++OutIdx) {
-    CCValAssign &VA = ArgLocs[i];
+  for (unsigned I = 0, ValI = 0, OutIdx = 0; I != ArgLocs.size();
+       ++I, ++OutIdx) {
+    CCValAssign &VA = ArgLocs[I];
     SDValue ArgValue = OutVals[OutIdx];
     ISD::ArgFlagsTy Flags = Outs[OutIdx].Flags;
 
     // Use local copy if it is a byval arg.
     if (Flags.isByVal())
-      ArgValue = ByValArgs[j++];
+      ArgValue = ByValArgs[ValI++];
 
     if (VA.isRegLoc()) {
       // Queue up the argument copies and emit them at the end.
       RegsToPass.push_back(std::make_pair(VA.getLocReg(), ArgValue));
     } else {
       assert(VA.isMemLoc() && "Argument not register or memory");
-      assert(!IsTailCall && "Tail call not allowed if stack is used "
-                            "for passing parameters");
 
       // Work out the address of the stack slot.
       if (!StackPtr.getNode())
@@ -426,14 +494,80 @@ SDValue TricoreTargetLowering::LowerGlobalAddress(SDValue Op,
   return DAG.getNode(TricoreISD::LEA, DL, Ty, MNHi, AddrLo);
 }
 
+SDValue TricoreTargetLowering::LowerConstantPool(SDValue Op,
+                                                 SelectionDAG &DAG) const {
+  ConstantPoolSDNode *CPSDN = cast<ConstantPoolSDNode>(Op);
+  SDLoc DL(CPSDN);
+  const Constant *C = CPSDN->getConstVal();
+  EVT Ty = getPointerTy(DAG.getDataLayout());
+
+  SDValue AddrHi = DAG.getTargetConstantPool(
+      C, Ty, std::nullopt, CPSDN->getOffset(), TricoreII::MO_HI);
+  SDValue AddrLo = DAG.getTargetConstantPool(
+      C, Ty, std::nullopt, CPSDN->getOffset(), TricoreII::MO_LO);
+  SDValue MNHi = DAG.getNode(TricoreISD::MOVHA, DL, Ty, AddrHi);
+  return DAG.getNode(TricoreISD::LEA, DL, Ty, MNHi, AddrLo);
+}
+
+SDValue TricoreTargetLowering::LowerConstant(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  EVT VT = Op.getValueType();
+  SDLoc DL(Op);
+  if (VT == MVT::i64) {
+    // Expand to a constant pool using the default expansion code.
+    return SDValue();
+  }
+  return Op; // For other types, just return the original node.
+}
+
+SDValue TricoreTargetLowering::LowerJumpTable(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  EVT PtrVT = Op.getValueType();
+  JumpTableSDNode *JSDN = cast<JumpTableSDNode>(Op);
+  SDLoc DL(JSDN);
+  EVT Ty = getPointerTy(DAG.getDataLayout());
+
+  SDValue AddrHi =
+      DAG.getTargetJumpTable(JSDN->getIndex(), Ty, TricoreII::MO_HI);
+  SDValue AddrLo =
+      DAG.getTargetJumpTable(JSDN->getIndex(), Ty, TricoreII::MO_LO);
+
+  SDValue MNHi = DAG.getNode(TricoreISD::MOVHA, DL, Ty, AddrHi);
+  return DAG.getNode(TricoreISD::LEA, DL, Ty, MNHi, AddrLo);
+}
+
+static SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) {
+  MachineFunction &MF = DAG.getMachineFunction();
+  TricoreMachineFunctionInfo *FuncInfo =
+      MF.getInfo<TricoreMachineFunctionInfo>();
+
+  // vastart just stores the address of the VarArgsFrameIndex slot into the
+  // memory location argument.
+  SDLoc DL(Op);
+  EVT PtrVT = DAG.getTargetLoweringInfo().getPointerTy(DAG.getDataLayout());
+  SDValue FR = DAG.getFrameIndex(FuncInfo->getVarArgsFrameIndex(), PtrVT);
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), DL, FR, Op.getOperand(1),
+                      MachinePointerInfo(SV));
+}
+
 SDValue TricoreTargetLowering::LowerOperation(SDValue Op,
                                               SelectionDAG &DAG) const {
 
   switch (Op.getOpcode()) {
   default:
+    Op->dump();
     llvm_unreachable("Should not custom lower this!");
+  case ISD::JumpTable:
+    return LowerJumpTable(Op, DAG);
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
+  case ISD::ConstantPool:
+    return LowerConstantPool(Op, DAG);
+  case ISD::Constant:
+    return LowerConstant(Op, DAG);
+  case ISD::VASTART:
+    return LowerVASTART(Op, DAG);
   }
 }
 
@@ -541,4 +675,47 @@ SDValue TricoreTargetLowering::PerformDAGCombine(SDNode *N,
   default:
     return SDValue();
   }
+}
+
+/// ReplaceNodeResults - Replace the results of node with an illegal result
+/// type with new values built out of custom code.
+void TricoreTargetLowering::ReplaceNodeResults(
+    SDNode *N, SmallVectorImpl<SDValue> &Results, SelectionDAG &DAG) const {
+  SDValue Res;
+  switch (N->getOpcode()) {
+  default:
+    N->dump();
+    llvm_unreachable("Don't know how to custom expand this!");
+  }
+}
+
+std::pair<unsigned, const TargetRegisterClass *>
+TricoreTargetLowering::getRegForInlineAsmConstraint(
+    const TargetRegisterInfo *TRI, StringRef Constraint, MVT VT) const {
+  if (Constraint.size() == 1) {
+    switch (Constraint[0]) {
+    case 'r':
+      if (VT == MVT::i64)
+        return std::make_pair(0U, &Tricore::EGPRRegClass);
+      if (VT == MVT::f32)
+        return std::make_pair(0U, &Tricore::DGPRRegClass);
+      if (VT == MVT::f64)
+        return std::make_pair(0U, &Tricore::EGPRRegClass);
+      return std::make_pair(0U, &Tricore::DGPRRegClass);
+    case 'f':
+      if (VT == MVT::f32) {
+        return std::make_pair(0U, &Tricore::DGPRRegClass);
+      } else if (VT == MVT::f64) {
+        return std::make_pair(0U, &Tricore::DGPRRegClass);
+      }
+      break;
+    case 'a':
+      return std::make_pair(0U, &Tricore::AGPRRegClass);
+    case 'A':
+      return std::make_pair(0U, &Tricore::PGPRRegClass);
+    default:
+      break;
+    }
+  }
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }

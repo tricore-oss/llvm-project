@@ -22,6 +22,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetOptions.h"
 
 using namespace llvm;
@@ -34,44 +35,46 @@ TricoreFrameLowering::TricoreFrameLowering(const TricoreSubtarget &ST)
 void TricoreFrameLowering::emitSPAdjustment(MachineFunction &MF,
                                             MachineBasicBlock &MBB,
                                             MachineBasicBlock::iterator MBBI,
-                                            int NumBytes, unsigned ADDrr,
-                                            unsigned ADDri) const {
-  DebugLoc dl;
+                                            int NumBytes) const {
+  DebugLoc DL;
   const TricoreInstrInfo &TII =
       *static_cast<const TricoreInstrInfo *>(MF.getSubtarget().getInstrInfo());
-  BuildMI(MBB, MBBI, dl, TII.get(Tricore::SUBA_SC), Tricore::A10)
-      .addReg(Tricore::A10)
-      .addImm(-NumBytes);
+  if (isInt<10>(NumBytes)) {
+    BuildMI(MBB, MBBI, DL, TII.get(Tricore::LEAbo), Tricore::A10)
+        .addReg(Tricore::A10)
+        .addImm(NumBytes);
+  } else if (isInt<16>(NumBytes)) {
+    BuildMI(MBB, MBBI, DL, TII.get(Tricore::LEAbol), Tricore::A10)
+        .addReg(Tricore::A10)
+        .addImm(NumBytes);
+  }
 }
 
 void TricoreFrameLowering::emitPrologue(MachineFunction &MF,
                                         MachineBasicBlock &MBB) const {
-  TricoreMachineFunctionInfo *FuncInfo =
-      MF.getInfo<TricoreMachineFunctionInfo>();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  const TricoreSubtarget &Subtarget = MF.getSubtarget<TricoreSubtarget>();
-  const TricoreInstrInfo &TII =
-      *static_cast<const TricoreInstrInfo *>(Subtarget.getInstrInfo());
-  const TricoreRegisterInfo &RegInfo =
-      *static_cast<const TricoreRegisterInfo *>(Subtarget.getRegisterInfo());
   MachineBasicBlock::iterator MBBI = MBB.begin();
 
   // Get the number of bytes to allocate from the FrameInfo
-  int NumBytes = (int)MFI.getStackSize();
+  int FrameSize = (int)MFI.getStackSize();
 
+  // Reserve space for call frame if known
   if (MFI.adjustsStack() && hasReservedCallFrame(MF))
-    NumBytes += MFI.getMaxCallFrameSize();
+    FrameSize += MFI.getMaxCallFrameSize();
 
-  NumBytes = Subtarget.getAdjustedFrameSize(NumBytes);
+  if (FrameSize == 0)
+    return;
+
+  FrameSize = alignTo(FrameSize, getStackAlign());
 
   // Finally, ensure that the size is sufficiently aligned for the
   // data on the stack.
-  NumBytes = alignTo(NumBytes, MFI.getMaxAlign());
+  FrameSize = alignTo(FrameSize, MFI.getMaxAlign());
 
   // Update stack size with corrected value.
-  MFI.setStackSize(NumBytes);
+  MFI.setStackSize(FrameSize);
 
-  emitSPAdjustment(MF, MBB, MBBI, -NumBytes, 0, 0);
+  emitSPAdjustment(MF, MBB, MBBI, -FrameSize);
 }
 
 MachineBasicBlock::iterator TricoreFrameLowering::eliminateCallFramePseudoInstr(
@@ -92,18 +95,10 @@ MachineBasicBlock::iterator TricoreFrameLowering::eliminateCallFramePseudoInstr(
       // Ensure the stack remains aligned after adjustment.
       Amount = alignSPAdjust(Amount);
 
-      const TricoreInstrInfo &TII = *static_cast<const TricoreInstrInfo *>(
-          MF.getSubtarget().getInstrInfo());
-      if (MI->getOpcode() == Tricore::ADJCALLSTACKDOWN) {
-        BuildMI(MBB, MI, DL, TII.get(Tricore::SUBA_SC), Tricore::A10)
-            .addReg(Tricore::A10)
-            .addImm(Amount);
-      } else {
-        BuildMI(MBB, MI, DL, TII.get(Tricore::ADDI), Tricore::A10)
-            .addReg(Tricore::A10)
-            .addReg(Tricore::A10)
-            .addImm(Amount);
-      }
+      if (MI->getOpcode() == Tricore::ADJCALLSTACKDOWN)
+        Amount = -Amount;
+
+      emitSPAdjustment(MF, MBB, MI, Amount);
     }
   }
 
@@ -145,6 +140,7 @@ TricoreFrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
   FrameReg = Tricore::A10;
   return StackOffset::getFixed(FrameOffset + MF.getFrameInfo().getStackSize());
 }
+
 
 static bool LLVM_ATTRIBUTE_UNUSED
 verifyLeafProcRegUse(MachineRegisterInfo *MRI) {

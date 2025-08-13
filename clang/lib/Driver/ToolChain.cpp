@@ -10,6 +10,7 @@
 #include "ToolChains/Arch/AArch64.h"
 #include "ToolChains/Arch/ARM.h"
 #include "ToolChains/Arch/RISCV.h"
+#include "ToolChains/Arch/Tricore.h"
 #include "ToolChains/Clang.h"
 #include "ToolChains/CommonArgs.h"
 #include "ToolChains/Flang.h"
@@ -340,6 +341,13 @@ static void getRISCVMultilibFlags(const Driver &D, const llvm::Triple &Triple,
   Result.push_back(("-mabi=" + riscv::getRISCVABI(Args, Triple)).str());
 }
 
+static void getTricoreMultilibFlags(const Driver &D, const llvm::Triple &Triple,
+                                    const llvm::opt::ArgList &Args,
+                                    Multilib::flags_list &Result) {
+  std::string Arch = tricore::getTricoreTargetCPU(Args);
+  Result.push_back("-march=" + Arch);
+}
+
 Multilib::flags_list
 ToolChain::getMultilibFlags(const llvm::opt::ArgList &Args) const {
   using namespace clang::driver::options;
@@ -363,6 +371,9 @@ ToolChain::getMultilibFlags(const llvm::opt::ArgList &Args) const {
   case llvm::Triple::riscv32:
   case llvm::Triple::riscv64:
     getRISCVMultilibFlags(D, Triple, Args, Result);
+    break;
+  case llvm::Triple::tricore:
+    getTricoreMultilibFlags(D, Triple, Args, Result);
     break;
   default:
     break;

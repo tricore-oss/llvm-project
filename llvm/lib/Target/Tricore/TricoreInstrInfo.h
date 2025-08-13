@@ -74,6 +74,16 @@ public:
                         int *BytesAdded = nullptr) const override;
   bool foldImmediate(MachineInstr &UseMI, MachineInstr &DefMI, Register Reg,
                      MachineRegisterInfo *MRI) const override;
+  void storeRegToStackSlot(MachineBasicBlock &MBB,
+                           MachineBasicBlock::iterator I, Register SrcReg,
+                           bool isKill, int FI, const TargetRegisterClass *RC,
+                           const TargetRegisterInfo *TRI, Register VReg,
+                           MachineInstr::MIFlag Flags) const override;
+  void loadRegFromStackSlot(
+      MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI, Register DstReg,
+      int FrameIndex, const TargetRegisterClass *RC,
+      const TargetRegisterInfo *TRI, Register VReg,
+      MachineInstr::MIFlag Flags = MachineInstr::NoFlags) const override;
 };
 
 } // end namespace llvm

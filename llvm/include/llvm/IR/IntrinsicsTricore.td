@@ -15,7 +15,7 @@
 
 let TargetPrefix = "tricore" in { // All intrinsics start with "llvm.tricore.".
 
-  def int tricore_mfcr : ClangBuiltin<"__builtin_tricore_mfcr">,
+  def int_tricore_mfcr : ClangBuiltin<"__builtin_tricore_mfcr">,
                          DefaultAttrsIntrinsic<[llvm_i32_ty], [llvm_i32_ty],
                                                [IntrNoMem, IntrHasSideEffects,
                                                 ImmArg<ArgIndex<0>>]>;
@@ -43,6 +43,6 @@ let TargetPrefix = "tricore" in { // All intrinsics start with "llvm.tricore.".
                           DefaultAttrsIntrinsic<[], [], [IntrWriteMem]>;
   def int_tricore_isync : ClangBuiltin<"__builtin_tricore_isync">,
                           DefaultAttrsIntrinsic<[], [], [IntrHasSideEffects]>;
-  def int_tricore_syscall : langBuiltin<"__builtin_tricore_isync">,
+  def int_tricore_syscall : ClangBuiltin<"__builtin_tricore_syscall">,
                           DefaultAttrsIntrinsic<[], [], [IntrWriteMem, IntrNoMerge, IntrNoDuplicate]>;
 }

@@ -54,6 +54,10 @@ bool llvm::CC_TricoreEABI(unsigned ValNo, MVT ValVT, MVT LocVT,
       }
       State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
       return false;
+    } else {
+      int64_t Offset = State.AllocateStack(8, Align(4));
+      State.addLoc(CCValAssign::getMem(ValNo, ValVT, Offset, LocVT, LocInfo));
+      return false;
     }
   }
 
