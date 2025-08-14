@@ -21,11 +21,13 @@
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCELFObjectWriter.h"
+#include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include "llvm/MC/MCValue.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
@@ -43,16 +45,39 @@ public:
                                    MCContext &Ctx) {
     switch (Fixup.getTargetKind()) {
     default:
+      dbgs() << "fixup: " << Fixup.getTargetKind();
       llvm_unreachable("Unknown fixup kind!");
-    case Tricore::fixup_tricore_branch15:
-      if (!isShiftedInt<15, 1>(Value))
-        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
-      return (Value >> 1);
-    case Tricore::fixup_tricore_rel24:
+    case llvm::FK_Data_1:
+    case llvm::FK_Data_2:
+    case llvm::FK_Data_4:
+    case llvm::FK_Data_8:
+      return Value;
+    case Tricore::fixup_tricore_24rel:
       if (!isShiftedInt<24, 1>(Value))
         Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
       Value = (Value >> 1);
       return (Value >> 16) | ((Value & 0xFFFF) << 8);
+    case Tricore::fixup_tricore_hi:
+      if (!isInt<32>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      Value = ((Value + 0x8000) >> 16);
+      break;
+    case Tricore::fixup_tricore_lo:
+      if (!isInt<32>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      Value = (Value - ((Value + 0x8000) & ~0xFFFFull));
+      break;
+    case Tricore::fixup_tricore_lo2:
+      if (!isInt<32>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      Value = Value - ((Value + 0x8000) & ~0xFFFFull);
+      Value = ((Value & 0x3C0) << 6) | ((Value & 0xFC00) >> 4) |
+              (Value & 0x3F);
+      break;
+    case Tricore::fixup_tricore_15rel:
+      if (!isShiftedInt<15, 1>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      return (Value >> 1);
     }
   }
 
@@ -114,11 +139,20 @@ TricoreAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       // TricoreFixupKinds.h.
       //
       // name                      offset bits  flags
-      {"fixup_tricore_lo", 0, 16, 0},
-      {"fixup_tricore_hi", 16, 16, 0},
-      {"fixup_tricore_rel24", 0, 24, MCFixupKindInfo::FKF_IsPCRel},
-      {"fixup_tricore_abs24", 8, 24, 0},
-      {"fixup_tricore_branch15", 16, 15, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_32rel", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_32abs", 0, 32, 0},
+      {"fixup_tricore_24rel", 0, 24, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_24abs", 0, 24, 0},
+      {"fixup_tricore_16sm", 16, 16, 0},
+      {"fixup_tricore_hi", 12, 16, 0},
+      {"fixup_tricore_lo", 12, 16, 0},
+      {"fixup_tricore_lo2", 16, 16, 0},
+      {"fixup_tricore_18abs", 12, 20, 0},
+      {"fixup_tricore_10sm", 16, 10, 0},
+      {"fixup_tricore_15rel", 16, 15, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_disp4", 12, 4, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_disp8", 8, 8, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_disp24", 8, 24, MCFixupKindInfo::FKF_IsPCRel},
   };
   static_assert((std::size(Infos)) == Tricore::NumTargetFixupKinds,
                 "Not all fixup kinds added to Infos array");

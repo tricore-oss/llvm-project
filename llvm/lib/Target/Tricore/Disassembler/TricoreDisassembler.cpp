@@ -133,7 +133,7 @@ static DecodeStatus DecodePGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
   if (RegNo >= 16 || (RegNo % 2 == 1))
     return MCDisassembler::Fail;
 
-  MCRegister Reg = Tricore::P0 + RegNo/2;
+  MCRegister Reg = Tricore::P0 + RegNo / 2;
 
   Inst.addOperand(MCOperand::createReg(Reg));
   return MCDisassembler::Success;
@@ -145,7 +145,7 @@ static DecodeStatus DecodeEGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
   if (RegNo >= 16 || RegNo % 2 == 1)
     return MCDisassembler::Fail;
 
-  MCRegister Reg = Tricore::E0 + RegNo/2;
+  MCRegister Reg = Tricore::E0 + RegNo / 2;
 
   Inst.addOperand(MCOperand::createReg(Reg));
   return MCDisassembler::Success;
@@ -164,8 +164,8 @@ template <unsigned N>
 static DecodeStatus decodeSImmOperand(MCInst &Inst, uint32_t Imm,
                                       int64_t Address,
                                       const MCDisassembler *Decoder) {
-  assert(isInt<N>(Imm) && "Invalid immediate");
-  Inst.addOperand(MCOperand::createImm(Imm));
+  assert(isUInt<N>(Imm) && "Invalid immediate");
+  Inst.addOperand(MCOperand::createImm(SignExtend64<N>(Imm)));
   return MCDisassembler::Success;
 }
 
@@ -173,9 +173,8 @@ template <unsigned N>
 static DecodeStatus decodeDispImmOperand(MCInst &Inst, uint32_t Imm,
                                          int64_t Address,
                                          const MCDisassembler *Decoder) {
-  assert((isInt<N>(Imm) && "Invalid immediate"));
-  Imm <<= 1;
-  Inst.addOperand(MCOperand::createImm(Imm));
+  assert((isUInt<N>(Imm) && "Invalid immediate"));
+  Inst.addOperand(MCOperand::createImm(SignExtend64<N>(Imm) << 1));
   return MCDisassembler::Success;
 }
 

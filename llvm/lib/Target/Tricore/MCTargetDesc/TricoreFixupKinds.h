@@ -22,12 +22,24 @@ namespace Tricore {
   // in TricoreAsmBackend.cpp.
   //
   enum Fixups {
-    fixup_tricore_lo = FirstTargetFixupKind,
+    // Tricore EABI relocations
+    fixup_tricore_32rel = FirstTargetFixupKind,
+    fixup_tricore_32abs,
+    fixup_tricore_24rel,
+    fixup_tricore_24abs,
+    fixup_tricore_16sm,
     fixup_tricore_hi,
-    fixup_tricore_rel24,
-    fixup_tricore_abs24,
+    fixup_tricore_lo,
+    fixup_tricore_lo2,
+    fixup_tricore_18abs,
+    fixup_tricore_10sm,
+    fixup_tricore_15rel,
 
-    fixup_tricore_branch15,
+    // Tricore jump displacements without relocations
+    fixup_tricore_disp4,
+    fixup_tricore_disp8,
+    fixup_tricore_disp20,
+
     // Marker
     fixup_tricore_invalid,
     NumTargetFixupKinds = fixup_tricore_invalid - FirstTargetFixupKind

@@ -24,7 +24,7 @@ void TricoreELFMCAsmInfo::anchor() {}
 TricoreELFMCAsmInfo::TricoreELFMCAsmInfo(const Triple &TheTriple) {
   
   IsLittleEndian = true;
-  CodePointerSize = CalleeSaveStackSlotSize = 8;
+  CodePointerSize = CalleeSaveStackSlotSize = 4;
 
   Data16bitsDirective = "\t.half\t";
   Data32bitsDirective = "\t.word\t";

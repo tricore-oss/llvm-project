@@ -12,8 +12,10 @@
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
 #include "TricoreFixupKinds.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -47,14 +49,45 @@ unsigned TricoreELFObjectWriter::getRelocType(MCContext &Ctx,
   unsigned Kind = Fixup.getTargetKind();
   if (Kind >= FirstLiteralRelocationKind)
     return Kind - FirstLiteralRelocationKind;
+
   if (IsPCRel) {
     switch (Fixup.getTargetKind()) {
     default:
-      llvm_unreachable("Unimplemented fixup -> relocation");
-    case Tricore::fixup_tricore_rel24:
+      Ctx.reportError(Fixup.getLoc(), "unsupported relocation type");
+      return ELF::R_RISCV_NONE;
+    case FK_Data_4:
+    case FK_PCRel_4:
+      return ELF::R_TRICORE_32REL;
+      break;
+    case Tricore::fixup_tricore_24rel:
       return ELF::R_TRICORE_24REL;
+    case Tricore::fixup_tricore_15rel:
+      return ELF::R_TRICORE_15REL;
     }
   }
+  switch (Fixup.getTargetKind()) {
+  default:
+    Ctx.reportError(Fixup.getLoc(), "unsupported relocation type");
+    return ELF::R_RISCV_NONE;
+  case FK_Data_1:
+    Ctx.reportError(Fixup.getLoc(), "1-byte data relocations not supported");
+    return ELF::R_TRICORE_NONE;
+  case FK_Data_2:
+    Ctx.reportError(Fixup.getLoc(), "2-byte data relocations not supported");
+    return ELF::R_TRICORE_NONE;
+  case FK_Data_4:
+    return ELF::R_TRICORE_32ABS;
+  case FK_Data_8:
+    Ctx.reportError(Fixup.getLoc(), "8-byte data relocations not supported");
+    return ELF::R_TRICORE_NONE;
+  case Tricore::fixup_tricore_hi:
+    return ELF::R_TRICORE_HI;
+  case Tricore::fixup_tricore_lo:
+    return ELF::R_TRICORE_LO;
+  case Tricore::fixup_tricore_lo2:
+    return ELF::R_TRICORE_LO2;
+  }
+
   return 0;
 }
 

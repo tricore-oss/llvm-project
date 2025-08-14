@@ -74,7 +74,7 @@ ArchKind parseArch(StringRef Arch) {
 
 ArchKind parseCPUArch(StringRef CPU) {
   for (auto &C : CPUNames) {
-    if (CPU.starts_with(C.Name)) {
+    if (CPU == C.Name) {
       return C.ArchID;
     }
   }

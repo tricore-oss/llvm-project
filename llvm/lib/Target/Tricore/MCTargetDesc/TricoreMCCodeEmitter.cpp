@@ -24,6 +24,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstBuilder.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -89,6 +90,19 @@ void TricoreMCCodeEmitter::encodeInstruction(const MCInst &MI,
                                              const MCSubtargetInfo &STI) const {
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
   unsigned Size = Desc.getSize();
+
+  switch (MI.getOpcode()) {
+  case Tricore::PseudoTAIL: {
+    MCInst TAIL =
+        MCInstBuilder(Tricore::J_B).addExpr(MI.getOperand(0).getExpr());
+    uint32_t Bits = getBinaryCodeForInstr(TAIL, Fixups, STI);
+    support::endian::write(CB, Bits, llvm::endianness::little);
+    MCNumEmitted++;
+    return;
+  }
+  default:
+    break;
+  }
 
   switch (Size) {
   default:
@@ -158,11 +172,15 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
   if (MO.isImm())
     return MO.getImm();
 
+  if (!MO.isExpr()) {
+    MI.dump();
+    MO.dump();
+  }
   assert(MO.isExpr() && "getImmOpValue expects only expressions or immediates");
   const MCExpr *Expr = MO.getExpr();
   MCExpr::ExprKind Kind = Expr->getKind();
   Tricore::Fixups FixupKind = Tricore::fixup_tricore_invalid;
-  bool RelaxCandidate = false;
+
   if (Kind == MCExpr::Target) {
     const TricoreMCExpr *RVExpr = cast<TricoreMCExpr>(Expr);
 
@@ -177,10 +195,10 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
       FixupKind = Tricore::fixup_tricore_hi;
       break;
     case TricoreMCExpr::VK_Tricore_24REL:
-      FixupKind = Tricore::fixup_tricore_rel24;
+      FixupKind = Tricore::fixup_tricore_24rel;
       break;
     case llvm::TricoreMCExpr::VK_Tricore_24ABS:
-      FixupKind = Tricore::fixup_tricore_abs24;
+      FixupKind = Tricore::fixup_tricore_24abs;
       break;
     default:
       llvm_unreachable("Unhandled fixup kind!");
@@ -190,16 +208,30 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
                   MCSymbolRefExpr::VK_None)) {
     switch (MIFrm) {
     default:
+      dbgs() << "Missing fixup: " << Desc.getOpcode();
+      break;
+    case TricoreII::InstFormatRLC:
+      if (Desc.getOpcode() == Tricore::MOVHrlc ||
+          Desc.getOpcode() == Tricore::MOVHArlc) {
+        FixupKind = Tricore::fixup_tricore_hi;
+      } else {
+        FixupKind = Tricore::fixup_tricore_lo;
+      }
+      break;
+    case TricoreII::InstFormatBOL:
+      FixupKind = Tricore::fixup_tricore_lo2;
       break;
     case TricoreII::InstFormatB:
       if (TricoreII::isAbsolute(Desc.getFlags())) {
-        FixupKind = Tricore::fixup_tricore_abs24;
+        FixupKind = Tricore::fixup_tricore_24abs;
       } else {
-        FixupKind = Tricore::fixup_tricore_rel24;
+        FixupKind = Tricore::fixup_tricore_24rel;
       }
       break;
+    case TricoreII::InstFormatBRC:
+    case TricoreII::InstFormatBRN:
     case TricoreII::InstFormatBRR:
-      FixupKind = Tricore::fixup_tricore_branch15;
+      FixupKind = Tricore::fixup_tricore_15rel;
       break;
     }
   }

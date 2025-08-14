@@ -383,6 +383,7 @@ public:
   bool isUImm4() const { return isUImm<4>(); }
   bool isUImm5() const { return isUImm<5>(); }
   bool isUImm8() const { return isUImm<8>(); }
+  bool isUImm9() const { return isUImm<9>(); }
   bool isUImm16() const { return isUImm<16>(); }
 
   bool isPos() const {

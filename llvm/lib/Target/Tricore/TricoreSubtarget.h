@@ -91,11 +91,6 @@ public:
   bool isRegisterReserved(MCPhysReg PhysReg) const {
     return ReserveRegister[PhysReg];
   }
-
-  /// Given a actual stack size as determined by FrameInfo, this function
-  /// returns adjusted framesize which includes space for register window
-  /// spills and arguments.
-  int getAdjustedFrameSize(int stackSize) const;
 };
 
 } // end namespace llvm

@@ -51,8 +51,4 @@ TricoreSubtarget::TricoreSubtarget(const StringRef &CPU,
       InstrInfo(initializeSubtargetDependencies(CPU, TuneCPU, FS)),
       TLInfo(TM, *this), FrameLowering(*this) {}
 
-int TricoreSubtarget::getAdjustedFrameSize(int frameSize) const {
-  return frameSize;
-}
-
 bool TricoreSubtarget::enableMachineScheduler() const { return true; }

@@ -64,7 +64,6 @@ void TricoreInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 void TricoreInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo,
                                          const MCSubtargetInfo &STI,
                                          raw_ostream &O, const char *Modifier) {
-
   O << "[";
   if (MI->getFlags() == 1)
     O << "+";
