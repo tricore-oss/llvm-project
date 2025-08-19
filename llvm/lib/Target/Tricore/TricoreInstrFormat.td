@@ -110,8 +110,8 @@ class TCInstB<bits<8> op1, dag outs, dag ins, list<dag> pattern,
 
   let TSFlags{6} = op1{7};
   let Inst{31 - 16} = disp24{15 - 0};
-  let Inst{15 - 8} = disp24{7 - 0};
-  let Inst{7 -0} = op1;
+  let Inst{15 - 8} = disp24{23 - 16};
+  let Inst{7 - 0} = op1;
 }
 
 class TCInstBO<bits<8> op1, bits<4> op2, IndexMode mode, dag outs, dag ins,

@@ -180,7 +180,7 @@ unsigned TricoreInstrInfo::insertBranch(
 
   // Unconditional branch.
   if (Cond.empty()) {
-    MachineInstr &MI = *BuildMI(&MBB, DL, get(Tricore::J_B)).addMBB(TBB);
+    MachineInstr &MI = *BuildMI(&MBB, DL, get(Tricore::J)).addMBB(TBB);
     if (BytesAdded)
       *BytesAdded += getInstSizeInBytes(MI);
     return 1;
@@ -197,7 +197,7 @@ unsigned TricoreInstrInfo::insertBranch(
     *BytesAdded += getInstSizeInBytes(MI);
 
   if (FBB) {
-    MachineInstr &MI = *BuildMI(&MBB, DL, get(Tricore::J_B)).addMBB(FBB);
+    MachineInstr &MI = *BuildMI(&MBB, DL, get(Tricore::J)).addMBB(FBB);
     if (BytesAdded)
       *BytesAdded += getInstSizeInBytes(MI);
     return 2;
@@ -244,19 +244,19 @@ void TricoreInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
 
   // On the order of operands here: think "[FrameIdx + 0] = SrcReg".
   if (RC == &Tricore::DGPRRegClass)
-    BuildMI(MBB, I, DL, get(Tricore::STW_SO))
+    BuildMI(MBB, I, DL, get(Tricore::STWbo))
         .addFrameIndex(FI)
         .addImm(0)
         .addReg(SrcReg, getKillRegState(isKill))
         .addMemOperand(MMO);
   else if (RC == &Tricore::AGPRRegClass)
-    BuildMI(MBB, I, DL, get(Tricore::STA_SO))
+    BuildMI(MBB, I, DL, get(Tricore::STAbo))
         .addFrameIndex(FI)
         .addImm(0)
         .addReg(SrcReg, getKillRegState(isKill))
         .addMemOperand(MMO);
   else if (RC == &Tricore::EGPRRegClass)
-    BuildMI(MBB, I, DL, get(Tricore::STD_SO))
+    BuildMI(MBB, I, DL, get(Tricore::STDbo))
         .addFrameIndex(FI)
         .addImm(0)
         .addReg(SrcReg, getKillRegState(isKill))

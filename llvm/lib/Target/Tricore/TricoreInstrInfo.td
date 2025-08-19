@@ -129,6 +129,7 @@ class TricoreUImmLeafOp<int bitsNum>
 def uimm4 : TricoreUImmLeafOp<4>;
 def uimm5 : TricoreUImmLeafOp<5>;
 def uimm8 : TricoreUImmLeafOp<8>;
+def uimm9 : TricoreUImmLeafOp<9>;
 def uimm16 : TricoreUImmLeafOp<16>;
 
 def uimm9_64 : TricoreUImmOp<9, i64>, ImmLeaf<i64, "return isUInt<9>(Imm);">;
@@ -293,20 +294,16 @@ defm LDA : Load<0x6, 0x99, "ld.a", AGPR>;
 defm LDDA : Load<0x7, 0x00, "ld.d", PGPR>;
 // defm LDDD : Load<0x9, 0x0, "ld.d", QGPR>;
 
-def STB_SO : Store_so<0x0, "st.b">;
-def STH_SO : Store_so<0x2, "st.h">;
-def STW_SO : Store_so<0x4, "st.w">;
-def STD_SO : Store_so<0x5, "st.d", EGPR>;
-def STA_SO : Store_so<0x6, "st.a", AGPR>;
-
 // Load
-multiclass LdPat<PatFrag LoadOp, string InstStr> {
-  def : Pat<(i32(LoadOp AddrRegImmBOL:$addr)),
+multiclass LdPat<PatFrag LoadOp, string InstStr, ValueType vt = i32> {
+  def : Pat<(vt(LoadOp AddrRegImmBOL:$addr)),
             (!cast<Instruction>(InstStr#bol) AddrRegImmBOL:$addr)>;
-  def : Pat<(i32(LoadOp AddrRegImmBO:$addr)),
+  def : Pat<(vt(LoadOp AddrRegImmBO:$addr)),
             (!cast<Instruction>(InstStr#bo) AddrRegImmBO:$addr)>;
 }
 
+defm : LdPat<extloadi1, "LDB">;
+defm : LdPat<zextloadi1, "LDB">;
 defm : LdPat<extloadi8, "LDB">;
 defm : LdPat<sextloadi8, "LDB">;
 defm : LdPat<zextloadi8, "LDBU">;
@@ -314,23 +311,62 @@ defm : LdPat<extloadi16, "LDH">;
 defm : LdPat<sextloadi16, "LDH">;
 defm : LdPat<zextloadi16, "LDHU">;
 defm : LdPat<load, "LDW">;
-
-def : Pat<(i32(extloadi1 AddrRegImmBO:$addr)), (LDBbo AddrRegImmBO:$addr)>;
-def : Pat<(i32(zextloadi1 AddrRegImmBO:$addr)), (LDBbo AddrRegImmBO:$addr)>;
+defm : LdPat<load, "LDW", f32>;
 def : Pat<(i64(load AddrRegImmBO:$addr)), (LDDbo AddrRegImmBO:$addr)>;
+def : Pat<(f64(load AddrRegImmBO:$addr)), (LDDbo AddrRegImmBO:$addr)>;
 def : Pat<(v2i32(load AddrRegImmBO:$addr)), (LDDbo AddrRegImmBO:$addr)>;
+defm : LdPat<atomic_load_8, "LDB">;
+defm : LdPat<atomic_load_16, "LDB">;
+defm : LdPat<atomic_load_32, "LDW">;
+def : Pat<(i64(atomic_load_64 AddrRegImmBO:$addr)), (LDDbo AddrRegImmBO:$addr)>;
 
-class StPat<PatFrag StoreOp, TCInstCommon Inst, ValueType vt = i32,
-            RegisterClass RC = DGPR>
-    : Pat<(StoreOp(vt RC:$a), AddrRegImmBO:$addr), (Inst AddrRegImmBO:$addr,
-                                                       vt:$a)>;
+// Store
+class StoreBO<int op2, IndexMode mode, string opcodestr,
+              RegisterClass RC = DGPR>
+    : TCInstBO<0x89, op2, mode, (outs),
+               (ins(MemBO<mode> $b, $off10):$addr, RC:$a), [], opcodestr,
+               "$addr, $a">;
+class StoreBOL<int op1, string opcodestr, RegisterClass RC = DGPR>
+    : TCInstBOL<op1, (outs), (ins(MemBOL $b, $off16):$addr, RC:$a), [],
+                opcodestr, "$addr, $a">;
 
-def : Pat<(store frameindex:$a, AddrRegImmBO:$addr), (STA_SO  AddrRegImmBO:$addr, tframeindex:$a)>;
-def : StPat<truncstorei8, STB_SO>;
-def : StPat<truncstorei16, STH_SO>;
-def : StPat<store, STW_SO>;
-def : StPat<store, STD_SO, i64, EGPR>;
-def : StPat<store, STD_SO, v2i32, EGPR>;
+multiclass Store<int bo_op2, int bol_op1, string opcodestr,
+                 RegisterClass RC = DGPR> {
+  let hasSideEffects = 0, mayLoad = 0, mayStore = 1 in {
+    def post : StoreBO<bo_op2, IndexModePost, opcodestr, RC>;
+    def pre : StoreBO<bo_op2, IndexModePre, opcodestr, RC>;
+    def bo : StoreBO<bo_op2, IndexModeNone, opcodestr, RC>;
+    if bol_op1 then {
+      def bol : StoreBOL<bol_op1, opcodestr, RC>;
+    }
+  }
+}
+
+defm STB : Store<0x0, 0xE9, "st.b">;
+defm STH : Store<0x2, 0xF9, "st.h">;
+defm STW : Store<0x4, 0x59, "st.w">;
+defm STD : Store<0x5, 0x0, "st.d", EGPR>;
+defm STA : Store<0x6, 0xB5, "st.a", AGPR>;
+
+multiclass StPat<PatFrag StoreOp, string InstStr, ValueType vt = i32> {
+  def : Pat<(StoreOp(vt DGPR:$a), AddrRegImmBOL:$addr),
+            (!cast<Instruction>(InstStr#bol) AddrRegImmBOL:$addr, DGPR:$a)>;
+  def : Pat<(StoreOp(vt DGPR:$a), AddrRegImmBO:$addr),
+            (!cast<Instruction>(InstStr#bo) AddrRegImmBO:$addr, DGPR:$a)>;
+}
+
+def : Pat<(store frameindex:$a, AddrRegImmBO:$addr), (STAbo AddrRegImmBO:$addr,
+                                                         tframeindex:$a)>;
+defm : StPat<truncstorei8, "STB">;
+defm : StPat<truncstorei16, "STH">;
+defm : StPat<store, "STW">;
+defm : StPat<store, "STW", f32>;
+def : Pat<(store(i64 EGPR:$a), AddrRegImmBO:$addr), (STDbo AddrRegImmBO:$addr,
+                                                        EGPR:$a)>;
+def : Pat<(store(f64 EGPR:$a), AddrRegImmBO:$addr), (STDbo AddrRegImmBO:$addr,
+                                                        EGPR:$a)>;
+def : Pat<(store(v2i32 EGPR:$a), AddrRegImmBO:$addr), (STDbo AddrRegImmBO:$addr,
+                                                          EGPR:$a)>;
 
 //===----------------------------------------------------------------------===//
 // Move instructions
@@ -478,17 +514,16 @@ multiclass arithmetic_notin<int Op1, int Op2, SDNode Op, string opcodestr,
 
 multiclass arithmetic_notout<int Op1, int Op2, SDNode Op, string opcodestr,
                              ValueType Ty = i32> {
-  def rc : TCInstRC<!add(Op1, 0x80), Op2, (outs DGPR:$c),
-                    (ins DGPR:$a, simm9:$const9),
-                    [(set DGPR:$c, (not(Op (Ty DGPR:$a), simm9:$const9)))], opcodestr,
+  def rc
+      : TCInstRC<
+            !add(Op1, 0x80), Op2, (outs DGPR:$c), (ins DGPR:$a, simm9:$const9),
+            [(set DGPR:$c, (not(Op(Ty DGPR:$a), simm9:$const9)))], opcodestr,
+            "$c, $a, "
+            "$const9">;
+  def rr : TCInstRR<Op1, Op2, (outs DGPR:$c), (ins DGPR:$a, DGPR:$b),
+                    [(set DGPR:$c, (not(Op(Ty DGPR:$a), Ty:$b)))], opcodestr,
                     "$c, $a, "
-                    "$const9">;
-  def rr
-      : TCInstRR<Op1, Op2, (outs DGPR:$c),
-                 (ins DGPR:$a, DGPR:$b), [(set DGPR:$c, (not(Op (Ty DGPR:$a), Ty:$b)))],
-                 opcodestr,
-                 "$c, $a, "
-                 "$b">;
+                    "$b">;
 }
 
 multiclass arithmetic_cond<int op1, int op2, CondCode cond, string asmstring> {
@@ -583,6 +618,10 @@ let b = 0 in {
                      "clz", "$c, $a">;
 }
 
+def SHUFFLE
+    : TCInstRC<0x8F, 0x07, (outs DGPR:$c), (ins DGPR:$a, uimm9:$const9), [],
+               "shuffle", "$c, $a, $const9">;
+
 def : Pat<(not(i32 DGPR:$a)), (NORrc DGPR:$a, (i32 0))>;
 def : Pat<(srl(i32 DGPR:$a), simm9:$const9), (SHrc(i32 DGPR:$a),
                                                  (negate simm9:$const9))>;
@@ -592,6 +631,8 @@ def : Pat<(sra(i32 DGPR:$a), simm9:$const9), (SHArc(i32 DGPR:$a),
                                                  (negate simm9:$const9))>;
 def : Pat<(sra(i32 DGPR:$a), (i32 DGPR:$b)), (SHArr(i32 DGPR:$a),
                                                  (RSUBrc 0, (i32 DGPR:$b)))>;
+def : Pat<(bswap(i32 DGPR:$a)), (SHUFFLE(i32 DGPR:$a), 0x01B)>;
+
 //===---
 // Multiplication &
 // Division
@@ -624,6 +665,8 @@ def : Pat<(i32(mul DGPR:$a, simm9:$const9)), (MULrc DGPR:$a, simm9:$const9)>;
 def : Pat<(i32(mul DGPR:$a, DGPR:$b)), (MULrr DGPR:$a, DGPR:$b)>;
 def : Pat<(mulhu(i32 DGPR:$a), DGPR:$b),
           (i32(EXTRACT_SUBREG(i64(MULUrr DGPR:$a, DGPR:$b)), sub_odd))>;
+def : Pat<(mulhs(i32 DGPR:$a), DGPR:$b),
+          (i32(EXTRACT_SUBREG(i64(MULErr DGPR:$a, DGPR:$b)), sub_odd))>;
 def : Pat<(sdiv(i32 DGPR:$a), DGPR:$b),
           (i32(EXTRACT_SUBREG(i64(DIV DGPR:$a, DGPR:$b)), sub_even))>;
 def : Pat<(srem(i32 DGPR:$a), DGPR:$b),
@@ -658,13 +701,13 @@ def : Pat<(sub frameindex:$fi, uimm8:$const8),
 
 // Select
 
-def SELrcR
+def SELrcr
     : TCInstRCR<
           0xAB, 0x4, (outs DGPR:$c), (ins DGPR:$d, DGPR:$a, simm9:$const9),
           [(set DGPR:$c, (select(i32 DGPR:$d), DGPR:$a, simm9:$const9))], "sel",
           "$c, $d, $a, "
           "$const9">;
-def SELrrR
+def SELrrr
     : TCInstRRR<0x2B, 0x4, (outs DGPR:$c), (ins DGPR:$d, DGPR:$a, DGPR:$b),
                 [(set DGPR:$c, (i32(select(i32 DGPR:$d), DGPR:$a, DGPR:$b)))],
                 "sel",
@@ -764,9 +807,9 @@ def : Pat<(brcond(i32 DGPR:$a), bb:$disp15), (JNEbrc DGPR:$a, 0,
                                                  br_disp15:$disp15)>;
 
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
-  def J_B : TCInstB<0x1D, (outs), (ins br_disp24:$disp24), [(br bb:$disp24)],
+  def J : TCInstB<0x1D, (outs), (ins br_disp24:$disp24), [(br bb:$disp24)],
                     "j", "$disp24">;
-  def JIrr : TCInstRR<0x2D, 0x03, (outs), (ins AGPR:$a), [(brind AGPR:$a)],
+  def JI : TCInstRR<0x2D, 0x03, (outs), (ins AGPR:$a), [(brind AGPR:$a)],
                       "ji", "$a"> {
     let b = 0;
     let c = 0;
@@ -776,9 +819,9 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
 
 let isCall = 1, isBarrier = 1, mayStore = 1, mayLoad = 0,
     hasSideEffects = 0 in {
-  def CALLb
+  def CALL
       : TCInstB<0x6D, (outs), (ins disp24:$disp24), [], "call", "$disp24">;
-  def CALLIrr
+  def CALLI
       : TCInstRR<0x2D, 0x00, (outs), (ins AGPR:$a), [(tricore_call AGPR:$a)],
                  "calli", "$a"> {
     let c = 0;
@@ -791,11 +834,11 @@ let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Size = 4,
   def PseudoTAIL : Pseudo<(outs), (ins disp24:$dst), [], "tail", "$dst">;
   def PseudoTAILI
       : Pseudo<(outs), (ins AGPR:$a), [(tricore_tail AGPR:$a)], "taili", "$a">,
-        PseudoInstExpansion<(JIrr AGPR:$a)>;
+        PseudoInstExpansion<(JI AGPR:$a)>;
 }
 
-def : Pat<(tricore_call tglobaladdr:$disp24), (CALLb tglobaladdr:$disp24)>;
-def : Pat<(tricore_call texternalsym:$disp24), (CALLb texternalsym:$disp24)>;
+def : Pat<(tricore_call tglobaladdr:$disp24), (CALL tglobaladdr:$disp24)>;
+def : Pat<(tricore_call texternalsym:$disp24), (CALL texternalsym:$disp24)>;
 def : Pat<(tricore_tail tglobaladdr:$disp24), (PseudoTAIL disp24:$disp24)>;
 def : Pat<(tricore_tail texternalsym:$disp24), (PseudoTAIL disp24:$disp24)>;
 
@@ -823,7 +866,7 @@ def : Pat<(sext_inreg i32:$a, i1), (EXTRrrpw i32:$a, 0, 1)>;
 def : Pat<(sext_inreg i32:$a, i8), (EXTRrrpw i32:$a, 0, 8)>;
 def : Pat<(sext_inreg i32:$a, i16), (EXTRrrpw i32:$a, 0, 16)>;
 
-def INSERTrcPW
+def INSERTrcpw
     : TCInstRCPW<0xB7, 0x0, (outs DGPR:$c),
                  (ins DGPR:$a, uimm4:$const4, pos:$pos, width:$width),
                  [(set DGPR:$c, (tricore_insert(i32 DGPR:$a), uimm4:$const4,

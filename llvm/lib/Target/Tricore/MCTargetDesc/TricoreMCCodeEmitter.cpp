@@ -94,7 +94,7 @@ void TricoreMCCodeEmitter::encodeInstruction(const MCInst &MI,
   switch (MI.getOpcode()) {
   case Tricore::PseudoTAIL: {
     MCInst TAIL =
-        MCInstBuilder(Tricore::J_B).addExpr(MI.getOperand(0).getExpr());
+        MCInstBuilder(Tricore::J).addExpr(MI.getOperand(0).getExpr());
     uint32_t Bits = getBinaryCodeForInstr(TAIL, Fixups, STI);
     support::endian::write(CB, Bits, llvm::endianness::little);
     MCNumEmitted++;
@@ -190,6 +190,9 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
       llvm_unreachable("Unhandled fixup kind!");
     case TricoreMCExpr::VK_Tricore_LO:
       FixupKind = Tricore::fixup_tricore_lo;
+      break;
+    case TricoreMCExpr::VK_Tricore_LO2:
+      FixupKind = Tricore::fixup_tricore_lo2;
       break;
     case TricoreMCExpr::VK_Tricore_HI:
       FixupKind = Tricore::fixup_tricore_hi;

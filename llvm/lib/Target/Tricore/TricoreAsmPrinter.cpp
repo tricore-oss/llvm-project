@@ -168,7 +168,14 @@ static MCOperand lowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym,
     Kind = TricoreMCExpr::VK_Tricore_None;
     break;
   case TricoreII::MO_LO:
-    Kind = TricoreMCExpr::VK_Tricore_LO;
+    // LO can be BOL and RLC relocation. Check the instruction format for
+    // correct assignment
+    if (TricoreII::getFormat(MO.getParent()->getDesc().TSFlags) ==
+        TricoreII::InstFormatBOL) {
+      Kind = TricoreMCExpr::VK_Tricore_LO2;
+    } else {
+      Kind = TricoreMCExpr::VK_Tricore_LO;
+    }
     break;
   case TricoreII::MO_HI:
     Kind = TricoreMCExpr::VK_Tricore_HI;

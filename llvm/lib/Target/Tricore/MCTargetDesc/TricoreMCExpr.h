@@ -28,8 +28,9 @@ public:
     VK_Tricore_32ABS,
     VK_Tricore_24REL,
     VK_Tricore_24ABS,
-    VK_Tricore_LO,
     VK_Tricore_HI,
+    VK_Tricore_LO,
+    VK_Tricore_LO2,
 
     VK_Tricore_Invalid
   };

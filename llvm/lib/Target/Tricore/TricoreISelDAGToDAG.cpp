@@ -11,7 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/TricoreBaseInfo.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
+#include "TricoreISelLowering.h"
 #include "TricoreTargetMachine.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -98,6 +100,7 @@ void TricoreDAGToDAGISel::Select(SDNode *N) {
   //   break;
   // }
   case ISD::Constant: {
+    break;
   }
   default:
     break;
@@ -154,6 +157,12 @@ bool TricoreDAGToDAGISel::SelectAddrRegImmBOL(SDValue Addr, SDValue &Base,
                                               SDValue &Offset) {
   SDLoc DL(Addr);
   MVT VT = Addr.getSimpleValueType();
+
+  if (Addr->getOpcode() == TricoreISD::LEA) {
+    Base = Addr.getOperand(0);
+    Offset = Addr.getOperand(1);
+    return true;
+  }
 
   if (SelectAddrFrameIndex(Addr, Base, Offset))
     return true;

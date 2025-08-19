@@ -36,6 +36,7 @@ enum OperandType : unsigned {
   OPERAND_UIMM4,
   OPERAND_UIMM5,
   OPERAND_UIMM8,
+  OPERAND_UIMM9,
   OPERAND_UIMM16,
   OPERAND_DISP24,
   OPERAND_DISP15,
@@ -82,8 +83,9 @@ enum {
 enum {
   MO_None = 0,
   MO_CALL = 1,
-  MO_LO = 3,
-  MO_HI = 4,
+  MO_HI = 2,
+  MO_LO = 4,
+  MO_LO2 = 8,
 };
 // Helper functions to read TSFlags.
 /// \returns the format of the instruction.

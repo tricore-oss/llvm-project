@@ -1,4 +1,4 @@
-//===- RISCV.cpp ----------------------------------------------------------===//
+//===- Tricore.cpp ----------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,7 +13,6 @@
 #include "SyntheticSections.h"
 #include "Target.h"
 #include "llvm/BinaryFormat/ELF.h"
-#include "llvm/Support/ELFAttributes.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/TimeProfiler.h"
 
@@ -55,20 +54,25 @@ enum Op {};
 enum Reg {};
 } // namespace
 
-static uint32_t hi16(uint32_t val) { return (val + 0x8000) >> 16; }
-static uint32_t lo16(uint32_t val) { return val & 4095; }
+static uint64_t hi16(uint64_t val) { return (val + 0x8000) >> 16; }
+static uint64_t lo16(uint64_t val) { return val & 4095; }
 
 // Extract bits v[begin:end], where range is inclusive, and begin must be < 63.
-static uint32_t extractBits(uint64_t v, uint32_t begin, uint32_t end) {
+static uint64_t extractBits(uint64_t v, uint32_t begin, uint32_t end) {
   return (v & ((1ULL << (begin + 1)) - 1)) >> end;
 }
 
 static uint32_t setRLC(uint32_t insn, uint32_t imm) {
-  return (insn & 0xffff) | (imm << 16);
+  return (insn & 0xf0000fff) | (extractBits(imm, 15, 0) << 12);
 }
 static uint32_t setBOL(uint32_t insn, uint32_t imm) {
-  return (insn & 0xFFFF) | (extractBits(imm, 0, 5) << 16) |
-         (extractBits(imm, 10, 15) << 22) | (extractBits(imm, 6, 9) << 28);
+  return (insn & 0xFFFF) | (extractBits(imm, 5, 0) << 16) |
+         (extractBits(imm, 15, 10) << 22) | (extractBits(imm, 9, 6) << 28);
+}
+
+static uint32_t setB(uint32_t insn, uint32_t imm) {
+  return (insn & 0xFF) | (extractBits(imm, 23, 16) << 8) |
+         (extractBits(imm, 15, 0) << 16);
 }
 
 Tricore::Tricore(Ctx &ctx) : TargetInfo(ctx) {
@@ -185,35 +189,33 @@ void Tricore::relocate(uint8_t *loc, const Relocation &rel,
 
   switch (rel.type) {
   case R_TRICORE_32ABS: {
-    checkInt(ctx, loc, val, 32, rel);
     write32le(loc, (uint32_t)val);
     break;
   }
   case R_TRICORE_24REL: {
-    uint32_t disp24 = val >> 1;
+    int64_t disp24 = ((int64_t)val) >> 1;
     uint32_t inst = (read32le(loc) & 0xFF);
     checkAlignment(ctx, loc, val, 2, rel);
-    checkInt(ctx, loc, val >> 1, 24, rel);
-    write32le(loc,
-              inst | ((disp24 & 0xFFFF) << 16) | ((disp24 & 0xFF0000) >> 8));
+    checkInt(ctx, loc, disp24, 24, rel);
+    write32le(loc, setB(inst, disp24));
     break;
   }
 
   case R_TRICORE_HI: {
-    uint32_t off16 = hi16(val);
-    checkInt(ctx, loc, val, 32, rel);
+    uint64_t off16 = hi16(val);
+    checkUInt(ctx, loc, off16, 16, rel);
     write32le(loc, setRLC(read32le(loc), off16));
     break;
   }
   case R_TRICORE_LO: {
-    uint32_t off16 = lo16(val);
-    checkInt(ctx, loc, val, 32, rel);
+    uint64_t off16 = lo16(val);
+    checkUInt(ctx, loc, off16, 16, rel);
     write32le(loc, setRLC(read32le(loc), off16));
     break;
   }
   case R_TRICORE_LO2: {
-    uint32_t off16 = lo16(val);
-    checkInt(ctx, loc, val, 32, rel);
+    uint64_t off16 = lo16(val);
+    checkUInt(ctx, loc, off16, 16, rel);
     write32le(loc, setBOL(read32le(loc), off16));
     break;
   }

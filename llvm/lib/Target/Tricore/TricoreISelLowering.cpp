@@ -63,11 +63,41 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
 
   addRegisterClass(MVT::i32, &Tricore::DGPRRegClass);
   addRegisterClass(MVT::v2i32, &Tricore::EGPRRegClass);
-  // addRegisterClass(MVT::i64, &Tricore::EGPRRegClass);
-  //  addRegisterClass(MVT::i32, &Tricore::AddrRegsRegClass);
+  if (!Subtarget.hasSoftFloat()) {
+    addRegisterClass(MVT::f32, &Tricore::DGPRRegClass);
 
-  // Compute derived properties from the register classes.
-  computeRegisterProperties(STI.getRegisterInfo());
+    if (!Subtarget.hasSingleFloat()) {
+      addRegisterClass(MVT::f64, &Tricore::EGPRRegClass);
+    }
+  }
+
+  // v2i32 is not supported by tricore per default, expand
+  // to single operations
+  for (unsigned Op = 0; Op < ISD::BUILTIN_OP_END; ++Op) {
+    setOperationAction(Op, MVT::v2i32, Expand);
+  }
+  // Truncating/extending stores/loads are also not supported.
+  for (MVT VT : MVT::integer_fixedlen_vector_valuetypes()) {
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::v2i32, Expand);
+    setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::v2i32, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::v2i32, Expand);
+
+    setLoadExtAction(ISD::SEXTLOAD, MVT::v2i32, VT, Expand);
+    setLoadExtAction(ISD::ZEXTLOAD, MVT::v2i32, VT, Expand);
+    setLoadExtAction(ISD::EXTLOAD, MVT::v2i32, VT, Expand);
+
+    setTruncStoreAction(VT, MVT::v2i32, Expand);
+    setTruncStoreAction(MVT::v2i32, VT, Expand);
+  }
+  // However, load and store *are* legal.
+  setOperationAction(ISD::LOAD, MVT::v2i32, Legal);
+  setOperationAction(ISD::STORE, MVT::v2i32, Legal);
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v2i32, Legal);
+  setOperationAction(ISD::BUILD_VECTOR, MVT::v2i32, Legal);
+
+  // And we need to promote i64 loads/stores into vector load/store
+  setOperationAction(ISD::LOAD, MVT::i64, Legal);
+  setOperationAction(ISD::STORE, MVT::i64, Legal);
 
   /* Use custom lowering for address information */
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
@@ -103,18 +133,29 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
 
+  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
+
   // Tricore does not have i1 sign extending load.
   for (MVT VT : MVT::integer_valuetypes()) {
     setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Promote);
   }
 
-  if (!Subtarget.hasSoftFloat()) {
-    addRegisterClass(MVT::f32, &Tricore::DGPRRegClass);
-
+  // Float
+  setOperationAction(ISD::LOAD, MVT::f64, Legal);
+  setOperationAction(ISD::STORE, MVT::f64, Legal);
+  if (!Subtarget.hasDoubleFloat()) {
+    setOperationAction({ISD::FP_EXTEND, ISD::STRICT_FP_EXTEND}, MVT::f64,
+                       Custom);
     if (!Subtarget.hasSingleFloat()) {
-      addRegisterClass(MVT::f64, &Tricore::EGPRRegClass);
+      setOperationAction({ISD::FP_EXTEND, ISD::STRICT_FP_EXTEND},
+                         {MVT::f16, MVT::f32}, Custom);
     }
   }
+
+  setStackPointerRegisterToSaveRestore(Tricore::A10);
+
+  // Compute derived properties from the register classes.
+  computeRegisterProperties(STI.getRegisterInfo());
 }
 
 bool TricoreTargetLowering::useSoftFloat() const {
@@ -136,6 +177,13 @@ const char *TricoreTargetLowering::getTargetNodeName(unsigned Opcode) const {
   }
   // clang-format on
   return nullptr;
+}
+
+EVT TricoreTargetLowering::getSetCCResultType(const DataLayout &, LLVMContext &,
+                                              EVT VT) const {
+  if (!VT.isVector())
+    return MVT::i32;
+  return VT.changeVectorElementTypeToInteger();
 }
 
 SDValue TricoreTargetLowering::LowerFormalArguments(
@@ -424,6 +472,15 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
   return Chain;
 }
 
+bool TricoreTargetLowering::CanLowerReturn(
+    CallingConv::ID CallConv, MachineFunction &MF, bool isVarArg,
+    const SmallVectorImpl<ISD::OutputArg> &Outs, LLVMContext &Context,
+    const Type *RetTy) const {
+  SmallVector<CCValAssign, 16> RVLocs;
+  CCState CCInfo(CallConv, isVarArg, MF, RVLocs, Context);
+  return CCInfo.CheckReturn(Outs, RetCC_TricoreEABI);
+}
+
 SDValue
 TricoreTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                                    bool IsVarArg,
@@ -551,6 +608,29 @@ static SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) {
                       MachinePointerInfo(SV));
 }
 
+SDValue TricoreTargetLowering::LowerFP_EXTEND(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  bool IsStrict = Op->isStrictFPOpcode();
+  SDValue SrcVal = Op.getOperand(IsStrict ? 1 : 0);
+  const unsigned DstSz = Op.getValueType().getSizeInBits();
+  const unsigned SrcSz = SrcVal.getValueType().getSizeInBits();
+
+  SDLoc Loc(Op);
+  RTLIB::Libcall LC;
+  MakeLibCallOptions CallOptions;
+  SDValue Chain = IsStrict ? Op.getOperand(0) : SDValue();
+  EVT DstVT = Op.getValueType();
+  EVT SrcVT = SrcVal.getValueType();
+
+  LC = RTLIB::getFPEXT(SrcVT, DstVT);
+  assert(LC != RTLIB::UNKNOWN_LIBCALL &&
+         "Unexpected type for custom-lowering FP_EXTEND");
+  std::tie(SrcVal, Chain) =
+      makeLibCall(DAG, LC, DstVT, SrcVal, CallOptions, Loc, Chain);
+
+  return IsStrict ? DAG.getMergeValues({SrcVal, Chain}, Loc) : SrcVal;
+}
+
 SDValue TricoreTargetLowering::LowerOperation(SDValue Op,
                                               SelectionDAG &DAG) const {
 
@@ -568,6 +648,9 @@ SDValue TricoreTargetLowering::LowerOperation(SDValue Op,
     return LowerConstant(Op, DAG);
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
+  case ISD::FP_EXTEND:
+  case ISD::STRICT_FP_EXTEND:
+    return LowerFP_EXTEND(Op, DAG);
   }
 }
 
@@ -575,6 +658,10 @@ static SDValue performSRACombine(SDNode *N, SelectionDAG &DAG,
                                  TargetLowering::DAGCombinerInfo &DCI,
                                  const TricoreSubtarget &Subtarget) {
   SDNode *Arg0 = N->getOperand(0).getNode();
+
+  if (N->getValueType(0) != MVT::i32) {
+    return SDValue();
+  }
 
   if (Arg0->getOpcode() == ISD::SHL &&
       N->getOperand(1)->getOpcode() == ISD::Constant &&
@@ -598,6 +685,10 @@ static SDValue performANDCombine(SDNode *N, SelectionDAG &DAG,
                                  TargetLowering::DAGCombinerInfo &DCI,
                                  const TricoreSubtarget &Subtarget) {
   SDNode *Arg0 = N->getOperand(0).getNode();
+
+  if (N->getValueType(0) != MVT::i32) {
+    return SDValue();
+  }
 
   if (Arg0->getOpcode() == ISD::SRL &&
       N->getOperand(1)->getOpcode() == ISD::Constant &&
@@ -626,6 +717,10 @@ static SDValue performORCombine(SDNode *N, SelectionDAG &DAG,
                                 const TricoreSubtarget &Subtarget) {
   SDNode *Arg0 = N->getOperand(0).getNode();
   SDNode *Arg1 = N->getOperand(1).getNode();
+
+  if (N->getValueType(0) != MVT::i32) {
+    return SDValue();
+  }
 
   bool HasInsertOps = Arg0->getOpcode() == ISD::AND &&
                       Arg0->getOperand(1).getOpcode() == ISD::Constant &&

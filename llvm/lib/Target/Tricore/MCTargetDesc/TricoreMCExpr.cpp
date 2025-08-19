@@ -47,6 +47,7 @@ bool TricoreMCExpr::printVariantKind(raw_ostream &OS, VariantKind Kind) {
   case VK_Tricore_24REL:
     return false;
   case VK_Tricore_LO:
+  case VK_Tricore_LO2:
     OS << "%lo(";
     return true;
   case VK_Tricore_HI:
