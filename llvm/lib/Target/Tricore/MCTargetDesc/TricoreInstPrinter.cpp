@@ -1,5 +1,4 @@
-//===-- TricoreInstPrinter.cpp - Convert Tricore MCInst to assembly syntax
-//------===//
+//=== TricoreInstPrinter.cpp - Convert Tricore MCInst to assembly syntax --===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "TricoreInstPrinter.h"
-#include "Tricore.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -29,10 +27,6 @@ using namespace llvm;
 #define GET_INSTRUCTION_NAME
 #define PRINT_ALIAS_INSTR
 #include "TricoreGenAsmWriter.inc"
-
-void TricoreInstPrinter::printRegName(raw_ostream &OS, MCRegister Reg) {
-  OS << getRegisterName(Reg);
-}
 
 void TricoreInstPrinter::printInst(const MCInst *MI, uint64_t Address,
                                    StringRef Annot, const MCSubtargetInfo &STI,
@@ -61,9 +55,14 @@ void TricoreInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   MO.getExpr()->print(O, &MAI);
 }
 
+void TricoreInstPrinter::printRegName(raw_ostream &OS, MCRegister Reg) {
+  markup(OS, Markup::Register) << getRegisterName(Reg);
+}
+
 void TricoreInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo,
                                          const MCSubtargetInfo &STI,
                                          raw_ostream &O, const char *Modifier) {
+  WithMarkup M = WithMarkup(*this, O, Markup::Memory, UseMarkup, UseColor);
   O << "[";
   if (MI->getFlags() == 1)
     O << "+";
