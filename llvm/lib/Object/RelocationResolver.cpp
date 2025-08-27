@@ -595,6 +595,31 @@ static uint64_t resolveLoongArch(uint64_t Type, uint64_t Offset, uint64_t S,
   }
 }
 
+static bool supportTricore(uint64_t Type) {
+  switch (Type) {
+  case ELF::R_TRICORE_NONE:
+  case ELF::R_TRICORE_32ABS:
+  case ELF::R_TRICORE_32REL:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static uint64_t resolveTricore(uint64_t Type, uint64_t Offset, uint64_t S,
+                               uint64_t LocData, int64_t Addend) {
+  switch (Type) {
+  case ELF::R_TRICORE_NONE:
+    return LocData;
+  case ELF::R_TRICORE_32ABS:
+    return (S + Addend) & 0xFFFFFFFF;
+  case ELF::R_TRICORE_32REL:
+    return (S + Addend - Offset) & 0xFFFFFFFF;
+  default:
+    llvm_unreachable("Invalid relocation type");
+  }
+}
+
 static bool supportsCOFFX86(uint64_t Type) {
   switch (Type) {
   case COFF::IMAGE_REL_I386_SECREL:
@@ -852,6 +877,8 @@ getRelocationResolver(const ObjectFile &Obj) {
       return {supportsRISCV, resolveRISCV};
     case Triple::csky:
       return {supportsCSKY, resolveCSKY};
+    case Triple::tricore:
+      return {supportTricore, resolveTricore};
     default:
       if (isAMDGPU(Obj))
         return {supportsAmdgpu, resolveAmdgpu};
