@@ -73,9 +73,26 @@ void TricoreInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo,
   const MCOperand OffsetOp = MI->getOperand(OpNo + 1);
   if (OffsetOp.isImm()) {
     if (OffsetOp.getImm() != 0)
-      markup(O, Markup::Immediate) << formatImm(OffsetOp.getImm());
+      O << formatImm(OffsetOp.getImm());
     return;
   }
   assert(OffsetOp.isExpr() && "Unknown operand kind in printOperand");
   OffsetOp.getExpr()->print(O, &MAI);
+}
+
+void TricoreInstPrinter::printBranchOperand(const MCInst *MI, uint64_t Address,
+                                          unsigned OpNo,
+                                          const MCSubtargetInfo &STI,
+                                          raw_ostream &O) {
+  const MCOperand &MO = MI->getOperand(OpNo);
+  if (!MO.isImm())
+    return printOperand(MI, OpNo, STI, O);
+
+  if (PrintBranchImmAsAddress) {
+    uint64_t Target = Address + MO.getImm();
+    Target &= 0xffffffff;
+    markup(O, Markup::Target) << formatHex(Target);
+  } else {
+    markup(O, Markup::Target) << formatImm(MO.getImm());
+  }
 }

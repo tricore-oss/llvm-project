@@ -56,7 +56,8 @@ public:
       if (!isShiftedInt<24, 1>(Value))
         Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
       Value = (Value >> 1);
-      return (Value >> 16) | ((Value & 0xFFFF) << 8);
+      Value = (Value >> 16) | ((Value & 0xFFFF) << 8);
+      break;
     case Tricore::fixup_tricore_hi:
       if (!isInt<32>(Value))
         Ctx.reportError(Fixup.getLoc(), "fixup value out of range");

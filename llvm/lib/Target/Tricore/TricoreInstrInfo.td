@@ -82,6 +82,8 @@ class TricoreDispImmOp<int bitsNum> : TricoreOp<i32> {
 class TricoreBrDispImmOp<int bitsNum> : Operand<OtherVT> {
   let EncoderMethod = "getDispImmOpValue";
   let DecoderMethod = "decodeDispImmOperand<"#bitsNum#">";
+  let PrintMethod = "printBranchOperand";
+  let OperandType = "OPERAND_PCREL";
 }
 
 class TricoreWidthOp : TricoreOp<i32> {
