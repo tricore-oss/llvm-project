@@ -124,7 +124,7 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   // BRCC
   // setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
+  setOperationAction(ISD::SELECT_CC, {MVT::f32, MVT::i32}, Expand);
 
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
   setOperationAction(ISD::VAARG, MVT::Other, Expand);
@@ -143,6 +143,10 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   // Float
   setOperationAction(ISD::LOAD, MVT::f64, Legal);
   setOperationAction(ISD::STORE, MVT::f64, Legal);
+  if (Subtarget.hasSingleFloat()) {
+    setOperationAction(ISD::SETCC, MVT::f32, Custom);
+    setOperationAction(ISD::BR_CC, MVT::f32, Expand);
+  }
   if (!Subtarget.hasDoubleFloat()) {
     setOperationAction({ISD::FP_EXTEND, ISD::STRICT_FP_EXTEND}, MVT::f64,
                        Custom);
@@ -631,6 +635,76 @@ SDValue TricoreTargetLowering::LowerFP_EXTEND(SDValue Op,
   return IsStrict ? DAG.getMergeValues({SrcVal, Chain}, Loc) : SrcVal;
 }
 
+static SDValue lowerSETCC(SDValue Op, SelectionDAG &DAG) {
+  assert(Op.getOperand(0).getValueType() == MVT::f32 && "SETCC only for float");
+
+  SDLoc DL(Op);
+  ISD::CondCode Code = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+  SDValue CMPF = DAG.getNode(TricoreISD::CMP_F, SDLoc(Op), MVT::i32,
+                             Op->getOperand(0), Op.getOperand(1));
+
+  SDValue LTBit = DAG.getConstant(0, DL, MVT::i32);
+  SDValue EQBit = DAG.getConstant(1, DL, MVT::i32);
+  SDValue GTBit = DAG.getConstant(2, DL, MVT::i32);
+  SDValue UOBit = DAG.getConstant(3, DL, MVT::i32);
+
+  switch (Code) {
+  case ISD::CondCode::SETOEQ:
+    return DAG.getNode(TricoreISD::ANDN_T, DL, MVT::i32, CMPF, EQBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETOGT:
+    return DAG.getNode(TricoreISD::ANDN_T, DL, MVT::i32, CMPF, GTBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETOGE:
+    return DAG.getNode(
+        TricoreISD::ANDN_T, DL, MVT::i32,
+        DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, GTBit, CMPF, EQBit),
+        LTBit, CMPF, UOBit);
+  case ISD::CondCode::SETOLT:
+    return DAG.getNode(TricoreISD::ANDN_T, DL, MVT::i32, CMPF, LTBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETOLE:
+    return DAG.getNode(
+        TricoreISD::ANDN_T, DL, MVT::i32,
+        DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, LTBit, CMPF, EQBit),
+        LTBit, CMPF, UOBit);
+  case ISD::CondCode::SETONE:
+    return DAG.getNode(TricoreISD::NOR_T, DL, MVT::i32, CMPF, EQBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETO:
+    return DAG.getNode(TricoreISD::NOR_T, DL, MVT::i32, CMPF, UOBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETUO:
+    return DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, UOBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETUEQ:
+    return DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, EQBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETUGT:
+    return DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, GTBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETUGE:
+    return DAG.getNode(
+        TricoreISD::OR_T, DL, MVT::i32,
+        DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, GTBit, CMPF, EQBit),
+        LTBit, CMPF, UOBit);
+  case ISD::CondCode::SETULT:
+    return DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, LTBit, CMPF,
+                       UOBit);
+  case ISD::CondCode::SETULE:
+    return DAG.getNode(
+        TricoreISD::OR_T, DL, MVT::i32,
+        DAG.getNode(TricoreISD::OR_T, DL, MVT::i32, CMPF, LTBit, CMPF, EQBit),
+        LTBit, CMPF, UOBit);
+  case ISD::CondCode::SETUNE: {
+    return DAG.getNode(TricoreISD::ORN_T, DL, MVT::i32, CMPF, UOBit, CMPF,
+                       EQBit);
+  }
+  default:
+    llvm_unreachable("Unhandle condcode.");
+  }
+}
+
 SDValue TricoreTargetLowering::LowerOperation(SDValue Op,
                                               SelectionDAG &DAG) const {
 
@@ -651,6 +725,8 @@ SDValue TricoreTargetLowering::LowerOperation(SDValue Op,
   case ISD::FP_EXTEND:
   case ISD::STRICT_FP_EXTEND:
     return LowerFP_EXTEND(Op, DAG);
+  case ISD::SETCC:
+    return lowerSETCC(Op, DAG);
   }
 }
 

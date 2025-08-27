@@ -114,6 +114,25 @@ class TCInstB<bits<8> op1, dag outs, dag ins, list<dag> pattern,
   let Inst{7 - 0} = op1;
 }
 
+class TCInstBIT<bits<8> op1, bits<2> op2, dag outs, dag ins, list<dag> pattern,
+              string opcodestr, string argstr = "">
+    : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatBIT> {
+  bits<4> c;
+  bits<4> b;
+  bits<4> a;
+  bits<5> pos1;
+  bits<5> pos2;
+
+  let Inst{31 - 28} = c;
+  let Inst{27 - 23} = pos2;
+  let Inst{22 - 21} = op2;
+  let Inst{20 - 16} = pos1;
+  let Inst{15 - 12} = b;
+  let Inst{11 - 8} = a;
+  let Inst{7 - 0} = op1;
+}
+
+
 class TCInstBO<bits<8> op1, bits<4> op2, IndexMode mode, dag outs, dag ins,
                list<dag> pattern, string opcodestr, string argstr = "">
     : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatBO> {
@@ -159,14 +178,14 @@ class TCInstBRC<bits<8> op1, bits<1> op2, dag outs, dag ins, list<dag> pattern,
   let Inst{7 - 0} = op1;
 }
 
-class TCInstBRN<bits<7> op1, dag outs, dag ins, list<dag> pattern,
+class TCInstBRN<bits<7> op1, bits<1> op2, dag outs, dag ins, list<dag> pattern,
                 string opcodestr, string argstr = "">
     : TCInst32<outs, ins, opcodestr, argstr, pattern, InstFormatBRN> {
   bits<4> a;
   bits<5> n;
   bits<15> disp15;
 
-  let Inst{31} = 0;
+  let Inst{31} = op2;
   let Inst{30 - 16} = disp15;
   let Inst{15 - 12} = n{3 - 0};
   let Inst{11 - 8} = a;

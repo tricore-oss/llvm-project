@@ -33,6 +33,15 @@ enum NodeType : unsigned {
   EXTR,
   EXTRU,
   INSERT,
+  CMP_F,
+  AND_T,
+  OR_T,
+  NOR_T,
+  ANDN_T,
+  NAND_T,
+  ORN_T,
+  XNOR_T,
+  XOR_T,
 };
 }
 

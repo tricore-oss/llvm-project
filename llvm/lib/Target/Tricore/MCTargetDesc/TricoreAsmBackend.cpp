@@ -72,14 +72,15 @@ public:
       if (!isInt<32>(Value))
         Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
       Value = Value - ((Value + 0x8000) & ~0xFFFFull);
-      Value = ((Value & 0x3C0) << 6) | ((Value & 0xFC00) >> 4) |
-              (Value & 0x3F);
+      Value = ((Value & 0x3C0) << 6) | ((Value & 0xFC00) >> 4) | (Value & 0x3F);
       break;
     case Tricore::fixup_tricore_15rel:
       if (!isShiftedInt<15, 1>(Value))
         Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
       return (Value >> 1);
     }
+
+    return Value;
   }
 
   void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
@@ -142,8 +143,8 @@ TricoreAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       // name                      offset bits  flags
       {"fixup_tricore_32rel", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_tricore_32abs", 0, 32, 0},
-      {"fixup_tricore_24rel", 0, 24, MCFixupKindInfo::FKF_IsPCRel},
-      {"fixup_tricore_24abs", 0, 24, 0},
+      {"fixup_tricore_24rel", 8, 24, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_24abs", 8, 24, 0},
       {"fixup_tricore_16sm", 16, 16, 0},
       {"fixup_tricore_hi", 12, 16, 0},
       {"fixup_tricore_lo", 12, 16, 0},

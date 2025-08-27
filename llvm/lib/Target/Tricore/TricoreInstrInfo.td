@@ -214,6 +214,13 @@ def SDT_INSERT : SDTypeProfile<1, 4,
                                [SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>,
                                 SDTCisInt<4>, SDTCisInt<0>, SDTCisInt<3>]>;
 
+def SDT_CMPF
+    : SDTypeProfile<1, 2, [SDTCisInt<0>, SDTCisFP<1>, SDTCisSameAs<1, 2>]>;
+def SDT_BIT
+    : SDTypeProfile<1, 4,
+                    [SDTCisInt<0>, SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>,
+                     SDTCisSameAs<0, 3>, SDTCisSameAs<0, 4>]>;
+
 // Target-independent nodes, but with target-specific formats.
 def callseq_start : SDNode<"ISD::CALLSEQ_START",
                            SDT_CallSeqStart, [SDNPHasChain, SDNPOutGlue]>;
@@ -237,6 +244,17 @@ def tricore_movha : SDNode<"TricoreISD::MOVHA", SDTIntUnaryOp>;
 def tricore_extr : SDNode<"TricoreISD::EXTR", SDT_EXTR>;
 def tricore_extru : SDNode<"TricoreISD::EXTRU", SDT_EXTR>;
 def tricore_insert : SDNode<"TricoreISD::INSERT", SDT_INSERT>;
+
+def tricore_cmp_f : SDNode<"TricoreISD::CMP_F", SDT_CMPF>;
+
+def tricore_and_t : SDNode<"TricoreISD::AND_T", SDT_BIT>;
+def tricore_or_t : SDNode<"TricoreISD::OR_T", SDT_BIT>;
+def tricore_nor_t : SDNode<"TricoreISD::NOR_T", SDT_BIT>;
+def tricore_andn_t : SDNode<"TricoreISD::ANDN_T", SDT_BIT>;
+def tricore_nand_t : SDNode<"TricoreISD::NAND_T", SDT_BIT>;
+def tricore_orn_t : SDNode<"TricoreISD::ORN_T", SDT_BIT>;
+def tricore_xnor_t : SDNode<"TricoreISD::XNOR_T", SDT_BIT>;
+def tricore_xor_t : SDNode<"TricoreISD::XOR_T", SDT_BIT>;
 
 //===----------------------------------------------------------------------===//
 // Instructions
@@ -487,6 +505,14 @@ def : Pat<(tricore_lea AGPR:$hi, tconstpool:$lo), (LEAbol AGPR:$hi,
 //  Add instructions
 //===----------------------------------------------------------------------===//
 
+class I32InstRRUnary<bits<8> Op1, bits<8> Op2, SDPatternOperator Op,
+                     string Opcodestr>
+    : TCInstRR<Op1, Op2, (outs DGPR:$c),
+               (ins DGPR:$a), [(set DGPR:$c, (Op(i32 DGPR:$a)))], Opcodestr,
+               "$c, $a"> {
+  let b = 0;
+}
+
 multiclass arithmetic<int Op1, int Op2, SDNode Op, string opcodestr,
                       ValueType Ty = i32> {
   def rc : TCInstRC<!add(Op1, 0x80), Op2, (outs DGPR:$c),
@@ -715,6 +741,8 @@ def SELrrr
                 "sel",
                 "$c, $d, $a, "
                 "$b">;
+def : Pat<(f32(select(i32 DGPR:$d), (f32 DGPR:$a), (f32 DGPR:$b))),
+          (SELrrr(i32 DGPR:$d), (f32 DGPR:$a), (f32 DGPR:$b))>;
 // Branch conditional
 multiclass cond_branch_unsigned<CondCode cond, CondCode condu, int op1,
                                 string asmstring> {
@@ -798,21 +826,23 @@ defm JEQ : cond_branch<SETEQ, 0x5f, 0x0, "jeq">;
 defm JNE : cond_branch<SETNE, 0x5f, 0x1, "jne">;
 
 let isBranch = 1, isTerminator = 1 in {
-  def JZTbrn : TCInstBRN<0x6F, (outs),
-                         (ins DGPR:$a, pos:$n, br_disp15:$disp15), [], "jz.t",
-                         "$a, $n, "
-                         "$disp15">;
+  def JZ_T : TCInstBRN<0x6F, 0x0, (outs),
+                       (ins DGPR:$a, pos:$n, br_disp15:$disp15), [], "jz.t",
+                       "$a, $n, $disp15">;
+  def JNZ_T : TCInstBRN<0x6F, 0x1, (outs),
+                        (ins DGPR:$a, pos:$n, br_disp15:$disp15), [], "jz.t",
+                        "$a, $n, $disp15">;
 }
 def : Pat<(brcond(assertzext(i32 DGPR:$a)), bb:$disp15),
-          (JZTbrn DGPR:$a, 0, br_disp15:$disp15)>;
+          (JZ_T DGPR:$a, 0, br_disp15:$disp15)>;
 def : Pat<(brcond(i32 DGPR:$a), bb:$disp15), (JNEbrc DGPR:$a, 0,
                                                  br_disp15:$disp15)>;
 
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
-  def J : TCInstB<0x1D, (outs), (ins br_disp24:$disp24), [(br bb:$disp24)],
-                    "j", "$disp24">;
-  def JI : TCInstRR<0x2D, 0x03, (outs), (ins AGPR:$a), [(brind AGPR:$a)],
-                      "ji", "$a"> {
+  def J : TCInstB<0x1D, (outs), (ins br_disp24:$disp24), [(br bb:$disp24)], "j",
+                  "$disp24">;
+  def JI : TCInstRR<0x2D, 0x03, (outs), (ins AGPR:$a), [(brind AGPR:$a)], "ji",
+                    "$a"> {
     let b = 0;
     let c = 0;
     let isIndirectBranch = 1;
@@ -821,11 +851,9 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
 
 let isCall = 1, isBarrier = 1, mayStore = 1, mayLoad = 0,
     hasSideEffects = 0 in {
-  def CALL
-      : TCInstB<0x6D, (outs), (ins disp24:$disp24), [], "call", "$disp24">;
-  def CALLI
-      : TCInstRR<0x2D, 0x00, (outs), (ins AGPR:$a), [(tricore_call AGPR:$a)],
-                 "calli", "$a"> {
+  def CALL : TCInstB<0x6D, (outs), (ins disp24:$disp24), [], "call", "$disp24">;
+  def CALLI : TCInstRR<0x2D, 0x00, (outs),
+                       (ins AGPR:$a), [(tricore_call AGPR:$a)], "calli", "$a"> {
     let c = 0;
     let b = 0;
   }
@@ -931,6 +959,113 @@ def : Pat<(int_tricore_insert DGPR:$a, DGPR:$b, DGPR:$d0, DGPR:$d1),
               (INSERT_SUBREG
                   (INSERT_SUBREG(v2i32(IMPLICIT_DEF)), DGPR:$d1, sub_odd),
                   DGPR:$d0, sub_even))>;
+//==--
+// Bit
+//==--
+class BitInst<bits<8> op1, bits<2> op2, string opcodestr>
+    : TCInstBIT<op1, op2, (outs DGPR:$c),
+                (ins DGPR:$a, pos:$pos1, DGPR:$b, pos:$pos2), [], opcodestr,
+                "$c, $a, $pos1, $b, $pos2">;
+def AND_AND_T : BitInst<0x47, 0x0, "and.and.t">;
+def AND_OR_T : BitInst<0x47, 0x1, "and.or.t">;
+def AND_NOR_T : BitInst<0x47, 0x2, "and.nor.t">;
+def AND_ANDN_T : BitInst<0x47, 0x3, "and.andn.t">;
+def OR_AND_T : BitInst<0xC7, 0x0, "or.and.t">;
+def OR_OR_T : BitInst<0xC7, 0x1, "or.or.t">;
+def OR_NOR_T : BitInst<0xC7, 0x2, "or.nor.t">;
+def OR_ANDN_T : BitInst<0xC7, 0x3, "or.andn.t">;
+def SH_AND_T : BitInst<0x27, 0x0, "sh.and.t">;
+def SH_OR_T : BitInst<0x27, 0x1, "sh.or.t">;
+def SH_NOR_T : BitInst<0x27, 0x2, "sh.nor.t">;
+def SH_ANDN_T : BitInst<0x27, 0x3, "sh.andn.t">;
+def SH_NAND_T : BitInst<0xA7, 0x0, "sh.nand.t">;
+def SH_ORN_T : BitInst<0xA7, 0x1, "sh.orn.t">;
+def SH_XNOR_T : BitInst<0xA7, 0x2, "sh.xnor.t">;
+def SH_XOR_T : BitInst<0xA7, 0x3, "sh.xor.t">;
+
+// AND.EQ OR.EQ XOR.EQ
+// AND.GE AND.GE.U ...
+// AND.LT AND.LT.U ..
+// AND.NE ..
+class SimpleBitInst<bits<8> op1, bits<2> op2, SDPatternOperator Op,
+                    string opcodestr>
+    : TCInstBIT<op1, op2, (outs DGPR:$c),
+                (ins DGPR:$a, pos:$pos1, DGPR:$b, pos:$pos2),
+                [(set DGPR:$c, (Op(i32 DGPR:$a), pos:$pos1, (i32 DGPR:$b),
+                                   pos:$pos2))],
+                opcodestr, "$c, $a, $pos1, $b, $pos2">;
+
+def AND_T : SimpleBitInst<0x87, 0x0, tricore_and_t, "and.t">;
+def OR_T : SimpleBitInst<0x87, 0x1, tricore_or_t, "or.t">;
+def NOR_T : SimpleBitInst<0x87, 0x2, tricore_nor_t, "nor.t">;
+def ANDN_T : SimpleBitInst<0x87, 0x3, tricore_andn_t, "andn.t">;
+def NAND_T : SimpleBitInst<0x07, 0x0, tricore_nand_t, "nand.t">;
+def ORN_T : SimpleBitInst<0x07, 0x1, tricore_orn_t, "orn.t">;
+def XNOR_T : SimpleBitInst<0x07, 0x2, tricore_xnor_t, "xnor.t">;
+def XOR_T : SimpleBitInst<0x07, 0x3, tricore_xor_t, "xor.t">;
+
+//===----------------------------------------------------------------------===//
+// Float & Double
+//===----------------------------------------------------------------------===//
+class FPInst<bits<8> op1, bits<8> op2, SDPatternOperator Op, string asmstring>
+    : TCInstRR<op1, op2, (outs DGPR:$c), (ins DGPR:$a, DGPR:$b),
+               [(set DGPR:$c, (Op(f32 DGPR:$a), (f32 DGPR:$b)))], asmstring,
+               "$c, $a, $b">;
+class FPInstUnary<bits<8> op1, bits<8> op2, SDPatternOperator Op,
+                  string asmstring, ValueType vt = f32>
+    : TCInstRR<op1, op2, (outs DGPR:$c),
+               (ins DGPR:$a), [(set DGPR:$c, (vt(Op(f32 DGPR:$a))))], asmstring,
+               "$c, $a"> {
+  let b = 0;
+}
+class FPInstBinary<bits<8> op1, bits<4> op2, SDPatternOperator op,
+                   string opcodestr>
+    : TCInstRRR<op1, op2, (outs DGPR:$c), (ins DGPR:$d, DGPR:$a),
+                [(set DGPR:$c, (op(f32 DGPR:$d), (f32 DGPR:$a)))], opcodestr,
+                "$c, $d, $a"> {
+  let b = 0;
+}
+class FPInstTernary<bits<8> op1, bits<4> op2, SDPatternOperator op_n1,
+                    SDPatternOperator op_n2, string opcodestr>
+    : TCInstRRR<op1, op2, (outs DGPR:$c), (ins DGPR:$d, DGPR:$a, DGPR:$b),
+                [(set DGPR:$c, (op_n1(f32 DGPR:$d), (op_n2(f32 DGPR:$a),
+                                                        (f32 DGPR:$b))))],
+                opcodestr, "$c, $d, $a, $b">;
+
+def ABSF : FPInstUnary<0x4B, 0x30, fabs, "abs.f">;
+def ADDF : FPInstBinary<0x6B, 0x2, any_fadd, "add.f">;
+def CMPF : TCInstRR<0x4B, 0x00, (outs DGPR:$c), (ins DGPR:$a, DGPR:$b),
+                    [(set DGPR:$c, (i32(tricore_cmp_f(f32 DGPR:$a),
+                                       (f32 DGPR:$b))))],
+                    "cmp.f", "$c, $a, $b">;
+def DIVF : FPInst<0x4B, 0x05, any_fdiv, "div.f">;
+// def FTOI : FPInstUnary<0x4B, 0x10, asd, "FTOI">;
+// def FTOIN
+def FTOIZ : FPInstUnary<0x4B, 0x13, any_fp_to_sint, "ftoiz", i32>;
+// FTOQ31
+// FTOQ31Z
+// FTOU
+def FTOUZ : FPInstUnary<0x4B, 0x15, any_fp_to_uint, "ftouz", i32>;
+// FTOHP
+// HPTOF
+def ITOF : I32InstRRUnary<0x4B, 0x14, any_sint_to_fp, "itof">;
+def MADDF : FPInstTernary<0x6B, 0x6, any_fadd, any_fmul, "madd.f">;
+def MAXF : FPInst<0x4B, 0x32, fmaximumnum, "max.f">;
+def MINF : FPInst<0x4B, 0x33, fminimumnum, "min.f">;
+def MSUBF : FPInstTernary<0x6B, 0x7, any_fsub, any_fmul, "msub.f">;
+def MULF : FPInst<0x4B, 0x4, any_fmul, "mul.f">;
+def NEGF : FPInstUnary<0x4B, 0x31, fneg, "neg.f">;
+// Q31TOF
+// QSEED.F
+def SUBF : FPInstBinary<0x6B, 0x3, any_fsub, "sub.f">;
+// UPDFL
+def UTOF : I32InstRRUnary<0x4B, 0x16, any_uint_to_fp, "utof">;
+
+def : Pat<(i32(bitconvert (f32 DGPR:$a))),(i32 DGPR:$a)>;
+def : Pat<(f32(bitconvert (i32 DGPR:$a))),(f32 DGPR:$a)>;
+def : Pat<(fcopysign(f32 DGPR:$a), (f32 DGPR:$b)),
+          (f32(INSERTrrpw(f32 DGPR:$a), (EXTRUrrpw(f32 DGPR:$b), 31, 1), 31,
+              1))>;
 
 //===----------------------------------------------------------------------===//
 // Intrinsics
