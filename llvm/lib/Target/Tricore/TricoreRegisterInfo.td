@@ -119,3 +119,5 @@ def EGPR : RegisterClass<"Tricore", [v2i32, i64, f64], 64,
                          (add(sequence "E%u", 8, 13, 2), E14,
                              (sequence "E%u", 0, 7, 2))>;
 def PGPR : RegisterClass<"Tricore", [i64], 64, (sequence "P%u", 0, 15, 2)>;
+
+def DGPR15 : RegisterClass<"Tricore", [i32], 32, (add D15)>;

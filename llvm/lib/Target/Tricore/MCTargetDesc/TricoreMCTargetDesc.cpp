@@ -178,6 +178,14 @@ bool TricoreMCInstrAnalysis::evaluateBranch(const MCInst &Inst, uint64_t Addr,
   case TricoreII::InstFormatBRR:
     Target = Addr + Inst.getOperand(2).getImm();
     return true;
+  case TricoreII::InstFormatSB:
+    Target = Addr + Inst.getOperand(0).getImm();
+    return true;
+  case TricoreII::InstFormatSBC:
+  case TricoreII::InstFormatSBR:
+  case TricoreII::InstFormatSBRN:
+    Target = Addr + Inst.getOperand(1).getImm();
+    return true;
   }
 }
 

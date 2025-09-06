@@ -78,6 +78,14 @@ public:
       if (!isShiftedInt<15, 1>(Value))
         Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
       return (Value >> 1);
+    case Tricore::fixup_tricore_disp4:
+      if (!isShiftedInt<4, 1>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      return (Value >> 1);
+    case Tricore::fixup_tricore_disp8:
+      if (!isShiftedInt<8, 1>(Value))
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      return (Value >> 1);
     }
 
     return Value;
@@ -152,7 +160,7 @@ TricoreAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_tricore_18abs", 12, 20, 0},
       {"fixup_tricore_10sm", 16, 10, 0},
       {"fixup_tricore_15rel", 16, 15, MCFixupKindInfo::FKF_IsPCRel},
-      {"fixup_tricore_disp4", 12, 4, MCFixupKindInfo::FKF_IsPCRel},
+      {"fixup_tricore_disp4", 8, 4, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_tricore_disp8", 8, 8, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_tricore_disp24", 8, 24, MCFixupKindInfo::FKF_IsPCRel},
   };

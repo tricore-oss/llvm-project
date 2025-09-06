@@ -67,6 +67,7 @@ class TCInstCommon<dag outs, dag ins, string opcodestr, string argstr,
   dag OutOperandList = outs;
   dag InOperandList = ins;
   let AsmString = opcodestr#!if(!empty(argstr), "", "\t"#argstr);
+  string OpcodeStr = opcodestr;
   let Pattern = pattern;
 
   let TSFlags{5 - 0} = format.Value;
@@ -427,6 +428,15 @@ class TCInstABS<bits<8> op1, dag outs, dag ins, list<dag> pattern,
 // 16bit instructions
 //------------------------------------------------------------------------------
 
+class TCInstSB<bits<8> op1, dag outs, dag ins, string opcodestr,
+                string argstr = "">
+    : TCInst16<outs, ins, opcodestr, argstr, [], InstFormatSB> {
+  bits<8> disp8;
+
+  let Inst{15 - 8} = disp8;
+  let Inst{7 - 0} = op1;
+}
+
 class TCInstSBC<bits<8> op1, dag outs, dag ins, string opcodestr,
                 string argstr = "">
     : TCInst16<outs, ins, opcodestr, argstr, [], InstFormatSBC> {
@@ -455,6 +465,16 @@ class TCInstSC<bits<8> op1, dag outs, dag ins, string opcodestr,
   bits<8> const8;
 
   let Inst{15 - 8} = const8;
+  let Inst{7 - 0} = op1;
+}
+
+class TCInstSR<bits<8> op1, bits<4> op2, dag outs, dag ins, string opcodestr,
+                string argstr = "">
+    : TCInst16<outs, ins, opcodestr, argstr, [], InstFormatSR> {
+  bits<4> a;
+
+  let Inst{15 - 12} = op2;
+  let Inst{11 - 8} = a;
   let Inst{7 - 0} = op1;
 }
 

@@ -1,5 +1,6 @@
 add_llvm_component_library(LLVMTricoreDesc
   TricoreAsmBackend.cpp
+  TricoreBaseInfo.cpp
   TricoreELFObjectWriter.cpp
   TricoreELFStreamer.cpp
   TricoreInstPrinter.cpp

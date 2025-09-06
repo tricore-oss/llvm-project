@@ -74,9 +74,22 @@ enum {
   InstFormatRRRR = 23,
   InstFormatRRRW = 24,
   InstFormatSYS = 25,
-  InstFormatSC = 26,
+  InstFormatSB = 26,
+  InstFormatSBC = 27,
+  InstFormatSBR = 28,
+  InstFormatSBRN = 29,
+  InstFormatSC = 30,
+  InstFormatSLR = 31,
+  InstFormatSLRO = 32,
+  InstFormatSR = 33,
+  InstFormatSRC = 34,
+  InstFormatSRO = 35,
+  InstFormatSRR = 36,
+  InstFormatSRRS = 37,
+  InstFormatSSR = 38,
+  InstFormatSSRO = 39,
 
-  InstFormatMask = 31,
+  InstFormatMask = 63,
   InstFormatShift = 0,
 };
 
@@ -97,5 +110,9 @@ static inline bool isAbsolute(uint64_t TSFlags) {
   return (TSFlags & (1 << 6)) != 0;
 }
 } // namespace TricoreII
+namespace TricoreCI {
+bool compress(MCInst &OutInst, const MCInst &MI, const MCSubtargetInfo &STI);
+bool uncompress(MCInst &OutInst, const MCInst &MI, const MCSubtargetInfo &STI);
+} // namespace TricoreCI
 } // namespace llvm
 #endif

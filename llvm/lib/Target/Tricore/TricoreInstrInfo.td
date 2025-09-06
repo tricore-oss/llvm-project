@@ -75,7 +75,7 @@ class TricoreDispImmOp<int bitsNum> : Operand<i32> {
   let MCOperandPredicate = [{
     int64_t Imm;
     if (MCOp.evaluateAsConstantImm(Imm))
-    return isShiftedInt<}]#bitsNum#[{, 1>(Imm);
+      return isShiftedInt<}]#bitsNum#[{, 1>(Imm);
     return MCOp.isBareSymbolRef();
   }];
 }
@@ -138,7 +138,6 @@ class TricoreUImmLeafOp<int bitsNum>
     : TricoreUImmOp<bitsNum>, ImmLeaf<i32, "return isUInt<"#bitsNum#">(Imm);">;
 def uimm4 : TricoreUImmLeafOp<4>;
 def uimm5 : TricoreUImmLeafOp<5>;
-def uimm8 : TricoreUImmLeafOp<8>;
 def uimm9 : TricoreUImmLeafOp<9>;
 def uimm16 : TricoreUImmLeafOp<16>;
 
@@ -151,7 +150,6 @@ class TricoreDispImmLeafOp<int bitsNum>
       ImmLeaf<i32, "return isShiftedInt<"#bitsNum#", 1>(Imm);">;
 
 def disp24 : TricoreDispImmLeafOp<24>;
-def br_disp4 : TricoreBrDispImmOp<15>;
 def br_disp15 : TricoreBrDispImmOp<15>;
 def br_disp24 : TricoreBrDispImmOp<24>;
 
@@ -269,7 +267,7 @@ def tricore_xor_t : SDNode<"TricoreISD::XOR_T", SDT_BIT>;
 //===----------------------------------------------------------------------===//
 
 let isBarrier = 1, isReturn = 1, isTerminator = 1 in {
-  def ret32
+  def RET
       : TCInstSYS<0x0D, 0x06, (outs), (ins), [(tricore_ret_glue)], "ret"> {
     let s1 = 0;
   }
@@ -722,18 +720,9 @@ def : GICustomOperandRenderer<"renderFrameIn"
                               "dex">,
       GISDNodeXFormEquiv<to_tframeindex>;
 
-let Constraints = "$c = $a" in {
-  def SUBA_SC
-      : TCInstSC<0x20, (outs AGPR:$c), (ins AGPR:$a, uimm8:$const8), "sub.a",
-                 "$c, "
-                 "$const8"> {
-    let Uses = [A10];
-    let Defs = [A10];
-  }
-}
 def : Pat<(frameindex:$fi), (LEAbol(iPTR(to_tframeindex $fi)), 0)>;
-def : Pat<(sub frameindex:$fi, uimm8:$const8),
-          (SUBA_SC(iPTR(to_tframeindex $fi)), uimm8:$const8)>;
+def : Pat<(sub frameindex:$fi, simm16:$const16),
+          (LEAbol(iPTR(to_tframeindex $fi)), (negate simm16:$const16))>;
 
 // Select
 
@@ -858,7 +847,7 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
 }
 
 let isCall = 1, isBarrier = 1, mayStore = 1, mayLoad = 0,
-    hasSideEffects = 0 in {
+    hasSideEffects = 1 in {
   def CALL : TCInstB<0x6D, (outs), (ins disp24:$disp24), [], "call", "$disp24">;
   def CALLI : TCInstRR<0x2D, 0x00, (outs),
                        (ins AGPR:$a), [(tricore_call AGPR:$a)], "calli", "$a"> {
@@ -1110,3 +1099,5 @@ def : Pat<(build_vector(i32 DGPR:$a), (i32 DGPR:$b)),
           (INSERT_SUBREG
               (INSERT_SUBREG(v2i32(IMPLICIT_DEF)), (i32 DGPR:$a), sub_even),
               (i32 DGPR:$b), sub_odd)>;
+
+include "TricoreInstrInfo16.td"

@@ -236,6 +236,14 @@ uint64_t TricoreMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
     case TricoreII::InstFormatBRR:
       FixupKind = Tricore::fixup_tricore_15rel;
       break;
+    case TricoreII::InstFormatSB:
+      FixupKind = Tricore::fixup_tricore_disp8;
+      break;
+    case TricoreII::InstFormatSBC:
+    case TricoreII::InstFormatSBR:
+    case TricoreII::InstFormatSBRN:
+      FixupKind = Tricore::fixup_tricore_disp4;
+      break;
     }
   }
 

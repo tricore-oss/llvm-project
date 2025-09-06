@@ -21,6 +21,7 @@
 #include "Tricore.h"
 #include "TricoreInstrInfo.h"
 #include "TricoreTargetMachine.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
@@ -37,6 +38,9 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "tricore-asm-printer"
+
+STATISTIC(TricoreNumInstrsCompressed,
+          "Number of Tricore Compressed instructions emitted");
 
 namespace {
 class TricoreAsmPrinter : public AsmPrinter {
@@ -55,6 +59,7 @@ public:
   void printOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
   void printMemOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
 
+  void EmitToStreamer(MCStreamer &S, const MCInst &Inst);
   void emitFunctionBodyStart() override;
   void emitInstruction(const MachineInstr *MI) override;
 
@@ -79,6 +84,14 @@ private:
 // Simple pseudo-instructions have their lowering (with expansion to real
 // instructions) auto-generated.
 #include "TricoreGenMCPseudoLowering.inc"
+
+void TricoreAsmPrinter::EmitToStreamer(MCStreamer &S, const MCInst &Inst) {
+  MCInst CInst;
+  bool Res = TricoreCI::compress(CInst, Inst, getSubtargetInfo());
+  if (Res)
+    ++TricoreNumInstrsCompressed;
+  return AsmPrinter::EmitToStreamer(S, Res ? CInst : Inst);
+}
 
 void TricoreAsmPrinter::emitInstruction(const MachineInstr *MI) {
 

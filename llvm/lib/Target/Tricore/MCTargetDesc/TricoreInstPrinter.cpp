@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "TricoreInstPrinter.h"
+#include "TricoreBaseInfo.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -20,6 +21,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "asm-printer"
@@ -31,7 +33,13 @@ using namespace llvm;
 void TricoreInstPrinter::printInst(const MCInst *MI, uint64_t Address,
                                    StringRef Annot, const MCSubtargetInfo &STI,
                                    raw_ostream &O) {
-  printInstruction(MI, Address, STI, O);
+  bool Res = false;
+  const MCInst *NewMI = MI;
+  MCInst UncompressedMI;
+  Res = TricoreCI::uncompress(UncompressedMI, *MI, STI);
+  if (Res)
+    NewMI = const_cast<MCInst *>(&UncompressedMI);
+  printInstruction(NewMI, Address, STI, O);
   printAnnotation(O, Annot);
 }
 
@@ -81,9 +89,9 @@ void TricoreInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void TricoreInstPrinter::printBranchOperand(const MCInst *MI, uint64_t Address,
-                                          unsigned OpNo,
-                                          const MCSubtargetInfo &STI,
-                                          raw_ostream &O) {
+                                            unsigned OpNo,
+                                            const MCSubtargetInfo &STI,
+                                            raw_ostream &O) {
   const MCOperand &MO = MI->getOperand(OpNo);
   if (!MO.isImm())
     return printOperand(MI, OpNo, STI, O);
