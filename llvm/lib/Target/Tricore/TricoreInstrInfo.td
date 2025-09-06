@@ -66,24 +66,32 @@ class TricoreUImmOp<int bitsNum, ValueType Vt = i32> : TricoreOp<Vt> {
   }];
 }
 
-class TricoreDispImmOp<int bitsNum> : TricoreOp<i32> {
+class TricoreDispImmOp<int bitsNum> : Operand<i32> {
   let ParserMatchClass = DispImmAsmOperand<bitsNum>;
-  let EncoderMethod = "getDispImmOpValue";
-  let DecoderMethod = "decodeDispImmOperand<"#bitsNum#">";
-  let OperandType = "OPERAND_DISP"#bitsNum;
-  let MCOperandPredicate = [{
-    int64_t Imm;
-    if (!MCOp.evaluateAsConstantImm(Imm))
-      return false;
-    return isShiftedInt<}]#bitsNum#[{, 1>(Imm);
-  }];
-}
-
-class TricoreBrDispImmOp<int bitsNum> : Operand<OtherVT> {
   let EncoderMethod = "getDispImmOpValue";
   let DecoderMethod = "decodeDispImmOperand<"#bitsNum#">";
   let PrintMethod = "printBranchOperand";
   let OperandType = "OPERAND_PCREL";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+    return isShiftedInt<}]#bitsNum#[{, 1>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
+}
+
+class TricoreBrDispImmOp<int bitsNum> : Operand<OtherVT> {
+  let ParserMatchClass = DispImmAsmOperand<bitsNum>;
+  let EncoderMethod = "getDispImmOpValue";
+  let DecoderMethod = "decodeDispImmOperand<"#bitsNum#">";
+  let PrintMethod = "printBranchOperand";
+  let OperandType = "OPERAND_PCREL";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isShiftedInt<}]#bitsNum#[{, 1>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 class TricoreWidthOp : TricoreOp<i32> {
