@@ -157,7 +157,8 @@ multiclass CCall<bits<8> op1, bits<4> op2> {
       hasSideEffects = 1 in {
     def sb : TCInstSB<op1, (outs), (ins br_disp8:$disp8), !tolower(NAME),
                       "$disp8">;
-    def Isr : TCInstSR<0xDC, op2, (outs), (ins AGPR:$a), !tolower(NAME#I), "$a">;
+    def Isr
+        : TCInstSR<0xDC, op2, (outs), (ins AGPR:$a), !tolower(NAME#I), "$a">;
   }
   def : CompressPat<(!cast<Instruction>(NAME) br_disp8:$disp8),
                     (!cast<Instruction>(NAME#sb) br_disp8:$disp8)>;
@@ -168,7 +169,8 @@ multiclass CBranch<bits<8> op1, bits<4> op2> {
   let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
     def sb : TCInstSB<op1, (outs), (ins br_disp8:$disp8), !tolower(NAME),
                       "$disp8">;
-    def Isr : TCInstSR<0xDC, op2, (outs), (ins AGPR:$a), !tolower(NAME#I), "$a">;
+    def Isr
+        : TCInstSR<0xDC, op2, (outs), (ins AGPR:$a), !tolower(NAME#I), "$a">;
   }
   def : CompressPat<(!cast<Instruction>(NAME) br_disp8:$disp8),
                     (!cast<Instruction>(NAME#sb) br_disp8:$disp8)>;
@@ -180,14 +182,12 @@ multiclass CBranchCompareZero<bits<8> op1, string inststring> {
                     "d15, $disp8">;
   def sbr : TCInstSBR<!add(op1, 0x8), (outs), (ins DGPR:$b, br_disp4:$disp4),
                       !tolower(NAME), "$b, $disp4">;
-  let isCompressOnly = true in {
-    def : CompressPat<(!cast<Instruction>(inststring#brc) D15, 0,
-                          br_disp8:$disp8),
-                      (!cast<Instruction>(NAME#sb) br_disp8:$disp8)>;
-    def : CompressPat<(!cast<Instruction>(inststring#brc) DGPR:$b, 0,
-                          br_disp4:$disp4),
-                      (!cast<Instruction>(NAME#sbr) DGPR:$b, br_disp4:$disp4)>;
-  }
+  def : CompressPat<(!cast<Instruction>(inststring#brc) D15, 0,
+                        br_disp8:$disp8),
+                    (!cast<Instruction>(NAME#sb) br_disp8:$disp8)>;
+  def : CompressPat<(!cast<Instruction>(inststring#brc) DGPR:$b, 0,
+                        br_disp4:$disp4),
+                    (!cast<Instruction>(NAME#sbr) DGPR:$b, br_disp4:$disp4)>;
 }
 multiclass CBranchComparePlus16<bits<8> op1> {
   let isBranch = 1, isTerminator = 1 in {

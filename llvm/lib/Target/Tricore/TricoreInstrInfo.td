@@ -636,110 +636,44 @@ def : Pat<(udiv(i32 DGPR:$a), DGPR:$b),
 def : Pat<(urem(i32 DGPR:$a), DGPR:$b),
           (i32(EXTRACT_SUBREG(i64(DIVU DGPR:$a, DGPR:$b)), sub_odd))>;
 
-// Transforms frameindex
-// -> tframeindex.
-def to_tframeindex : SDNodeXForm<frameindex, [{
-  return CurDAG->getTargetFrameIndex(N->getIndex(), N->getValueType(0));
-}]>;
-
-def : GICustomOperandRenderer<"renderFrameIn"
-                              "dex">,
-      GISDNodeXFormEquiv<to_tframeindex>;
-
-def : Pat<(frameindex:$fi), (LEAbol(iPTR(to_tframeindex $fi)), 0)>;
-def : Pat<(sub frameindex:$fi, simm16:$const16),
-          (LEAbol(iPTR(to_tframeindex $fi)), (negate simm16:$const16))>;
-
 // Branch conditional
-multiclass cond_branch_unsigned<CondCode cond, CondCode condu, int op1,
-                                string asmstring> {
+multiclass cond_branch<int op1, int op2, CondCode cond> {
   let isBranch = 1, isTerminator = 1 in {
-    def brc : TCInstBRC<!add(op1, 0x80), 0x00, (outs),
+    def brc
+        : TCInstBRC<!add(op1, 0x80), op2, (outs),
                         (ins DGPR:$a, simm4:$const4, br_disp15:$disp15),
                         [(brcc cond, (i32 DGPR:$a), simm4:$const4, bb:$disp15)],
-                        asmstring,
-                        "$a, "
-                        "$const4, "
-                        "$disp15">;
-    def brr : TCInstBRR<
-                  op1, 0x00, (outs), (ins DGPR:$a, DGPR:$b, br_disp15:$disp15),
-                  [(brcc cond, (i32 DGPR:$a), DGPR:$b, bb:$disp15)], asmstring,
-                  "$a, $b, "
-                  "$disp15">;
-    def Ubrc
-        : TCInstBRC<!add(op1, 0x80), 0x01, (outs),
-                    (ins DGPR:$a, simm4:$const4, br_disp15:$disp15),
-                    [(brcc condu, (i32 DGPR:$a), simm4:$const4, bb:$disp15)],
-                    !strconcat(asmstring, ".u"),
-                    "$a, "
-                    "$const4, "
-                    "$disp15">;
-    def Ubrr : TCInstBRR<op1, 0x01, (outs),
-                         (ins DGPR:$a, DGPR:$b, br_disp15:$disp15),
-                         [(brcc condu, (i32 DGPR:$a), DGPR:$b, bb:$disp15)],
-                         !strconcat(asmstring, ".u"),
-                         "$a, $b, "
-                         "$disp15">;
-  }
-}
-
-multiclass cond_branch<CondCode cond, int op1, int op2, string asmstring> {
-  let isBranch = 1, isTerminator = 1 in {
-    def brc : TCInstBRC<!add(op1, 0x80), op2, (outs),
-                        (ins DGPR:$a, simm4:$const4, br_disp15:$disp15),
-                        [(brcc cond, (i32 DGPR:$a), simm4:$const4, bb:$disp15)],
-                        asmstring,
-                        "$a, "
-                        "$const4, "
-                        "$disp15">;
+                    !subst("_", ".", !tolower(NAME)), "$a, $const4, $disp15">;
     def brr
         : TCInstBRR<op1, op2, (outs), (ins DGPR:$a, DGPR:$b, br_disp15:$disp15),
                     [(brcc cond, (i32 DGPR:$a), DGPR:$b, bb:$disp15)],
-                    asmstring,
-                    "$a, $b, "
-                    "$disp15">;
+                    !subst("_", ".", !tolower(NAME)), "$a, $b, $disp15">;
   }
-  /* TODO: +16 disp4
-   * instructions */
+}
+def mask_1bit : ImmLeaf<i32, "return __builtin_popcountll(Imm) == 1;">;
+
+multiclass cond_branch_z<int op2, CondCode cond> {
+  def NAME : TCInstBRN<0x6F, op2, (outs),
+                       (ins DGPR:$a, pos:$n, br_disp15:$disp15), [],
+                       !subst("_", ".", !tolower(NAME)), "$a, $n, $disp15"> {
+    let isBranch = 1;
+    let isTerminator = 1;
+  }
+  def : Pat<(brcc cond, (and(i32 DGPR:$a), mask_1bit:$mask), (i32 0),
+                bb:$disp15),
+            (!cast<Instruction>(NAME) DGPR:$a, (mask_to_bit $mask),
+                br_disp15:$disp15)>;
 }
 
-multiclass cond_branch_inferred<CondCode cond, Instruction inst,
-                                Instruction instb, string asmstring> {
-  def : Pat<(brcc cond, (i32 DGPR:$a), simm4:$const4, bb:$disp15),
-            (inst DGPR:$a, (plus1 simm4:$const4), br_disp15:$disp15)>;
-  def : Pat<(brcc cond, (i32 DGPR:$a), DGPR:$b, bb:$disp15),
-            (instb DGPR:$b, DGPR:$a, br_disp15:$disp15)>;
-  /* TODO: +1*/
-  def : InstAlias<!strconcat(asmstring, " $a, "
-                                        "$const4"
-                                        ", "
-                                        "$disp1"
-                                        "5"),
-                  (inst DGPR:$a, simm4:$const4, br_disp15:$disp15)>;
-  def : InstAlias<!strconcat(asmstring, " $a, "
-                                        "$b, "
-                                        "$disp1"
-                                        "5"),
-                  (instb DGPR:$b, DGPR:$a, br_disp15:$disp15)>;
-}
+defm JEQ : cond_branch<0x5F, 0x0, SETEQ>;
+defm JNE : cond_branch<0x5F, 0x1, SETNE>;
+defm JLT : cond_branch<0x3F, 0x0, SETLT>;
+defm JLT_U : cond_branch<0x3F, 0x1, SETULT>;
+defm JGE : cond_branch<0x7F, 0x0, SETGE>;
+defm JGE_U : cond_branch<0x7F, 0x1, SETUGE>;
+defm JZ_T : cond_branch_z<0x0, SETEQ>;
+defm JNZ_T : cond_branch_z<0x1, SETNE>;
 
-defm JLT : cond_branch_unsigned<SETLT, SETULT, 0x3F, "jlt">;
-defm JGE : cond_branch_unsigned<SETGE, SETUGE, 0x7F, "jge">;
-defm JGT : cond_branch_inferred<SETGT, JGEbrc, JLTbrr, "jgt">;
-defm JGTU : cond_branch_inferred<SETUGT, JGEUbrc, JLTUbrr, "jgt.u">;
-defm JLE : cond_branch_inferred<SETLE, JLTbrc, JGEbrr, "jle">;
-defm JLEU : cond_branch_inferred<SETULE, JLTUbrc, JGEUbrr, "jle.u">;
-defm JEQ : cond_branch<SETEQ, 0x5f, 0x0, "jeq">;
-defm JNE : cond_branch<SETNE, 0x5f, 0x1, "jne">;
-
-let isBranch = 1, isTerminator = 1 in {
-  def JZ_T : TCInstBRN<0x6F, 0x0, (outs),
-                       (ins DGPR:$a, pos:$n, br_disp15:$disp15), [], "jz.t",
-                       "$a, $n, $disp15">;
-  def JNZ_T : TCInstBRN<0x6F, 0x1, (outs),
-                        (ins DGPR:$a, pos:$n, br_disp15:$disp15), [], "jz.t",
-                        "$a, $n, $disp15">;
-}
 def : Pat<(brcond(assertzext(i32 DGPR:$a)), bb:$disp15),
           (JZ_T DGPR:$a, 0, br_disp15:$disp15)>;
 def : Pat<(brcond(i32 DGPR:$a), bb:$disp15), (JNEbrc DGPR:$a, 0,
