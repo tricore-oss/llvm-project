@@ -15,6 +15,7 @@
 #include "MCTargetDesc/TricoreAsmBackend.h"
 #include "MCTargetDesc/TricoreFixupKinds.h"
 #include "MCTargetDesc/TricoreMCTargetDesc.h"
+#include "TricoreBaseInfo.h"
 #include "TricoreFixupKinds.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCAsmBackend.h"
@@ -56,7 +57,7 @@ public:
       if (!isShiftedInt<24, 1>(Value))
         Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
       Value = (Value >> 1);
-      Value = (Value >> 16) | ((Value & 0xFFFF) << 8);
+      Value = ((Value & 0xFF0000) >> 16) | ((Value & 0xFFFF) << 8);
       break;
     case Tricore::fixup_tricore_hi:
       if (!isInt<32>(Value))
@@ -76,15 +77,15 @@ public:
       break;
     case Tricore::fixup_tricore_15rel:
       if (!isShiftedInt<15, 1>(Value))
-        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+        Ctx.reportError(Fixup.getLoc(), "15rel value out of range");
       return (Value >> 1);
     case Tricore::fixup_tricore_disp4:
       if (!isShiftedInt<4, 1>(Value))
-        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+        Ctx.reportError(Fixup.getLoc(), "disp4 value out of range");
       return (Value >> 1);
     case Tricore::fixup_tricore_disp8:
       if (!isShiftedInt<8, 1>(Value))
-        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+        Ctx.reportError(Fixup.getLoc(), "disp8 value out of range");
       return (Value >> 1);
     }
 
@@ -126,6 +127,19 @@ public:
     return createTricoreELFObjectWriter(OSABI);
   }
 };
+
+bool TricoreAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
+                                     const MCSubtargetInfo *STI) const {
+  if (Count % 2) {
+    OS.write("\0", 1);
+    Count -= 1;
+  }
+
+  for (; Count >= 2; Count -= 2)
+    OS.write("\0\0", 2);
+
+  return true;
+}
 
 std::optional<MCFixupKind>
 TricoreAsmBackend::getFixupKind(StringRef Name) const {
@@ -180,17 +194,94 @@ TricoreAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
   return Infos[Kind - FirstTargetFixupKind];
 }
 
-bool TricoreAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
-                                     const MCSubtargetInfo *STI) const {
-  if (Count % 2) {
-    OS.write("\0", 1);
-    Count -= 1;
+bool TricoreAsmBackend::fixupNeedsRelaxationAdvanced(
+    const MCAssembler &Asm, const MCFixup &Fixup, bool Resolved, uint64_t Value,
+    const MCRelaxableFragment *DF, const bool WasForced) const {
+  // Return true if the symbol is actually unresolved.
+  // Resolved could be always false when shouldForceRelocation return true.
+  // We use !WasForced to indicate that the symbol is unresolved and not forced
+  // by shouldForceRelocation.
+  if (!Resolved && !WasForced)
+    return true;
+
+  int64_t Offset = int64_t(Value);
+  switch (Fixup.getTargetKind()) {
+  default:
+    return false;
+  case Tricore::fixup_tricore_24rel:
+    return !isShiftedInt<24, 1>(Offset);
+  case Tricore::fixup_tricore_15rel:
+    return !isShiftedInt<15, 1>(Offset);
+  case Tricore::fixup_tricore_disp8:
+    return !isShiftedInt<8, 1>(Offset);
+  case Tricore::fixup_tricore_disp4:
+    return !isShiftedInt<4, 1>(Offset);
+  }
+}
+
+// Given a compressed control flow instruction this function returns
+// the expanded instruction.
+static unsigned getRelaxedOpcode(unsigned Op) {
+  switch (Op) {
+  default:
+    return Op;
+  case Tricore::Jsb:
+    return Tricore::J;
+  case Tricore::JZsb:
+  case Tricore::JZsbr:
+    return Tricore::JEQbrc;
+  case Tricore::JNZsb:
+  case Tricore::JNZsbr:
+    return Tricore::JNEbrc;
+  case Tricore::JEQsbc:
+    return Tricore::JEQbrc;
+  case Tricore::JEQsbr:
+    return Tricore::JEQbrr;
+  case Tricore::JNEsbc:
+    return Tricore::JNEbrc;
+  case Tricore::JNEsbr:
+    return Tricore::JNEbrr;
+  case Tricore::JGEZsbr:
+    return Tricore::JGEbrr;
+  case Tricore::JGTZsbr:
+    return Tricore::JLTbrr;
+  case Tricore::JLEZsbr:
+    return Tricore::JGEbrr;
+  case Tricore::JLTZsbr:
+    return Tricore::JLTbrr;
+  }
+}
+
+bool TricoreAsmBackend::mayNeedRelaxation(const MCInst &Inst,
+                                          const MCSubtargetInfo &STI) const {
+  return getRelaxedOpcode(Inst.getOpcode()) != Inst.getOpcode();
+}
+
+void TricoreAsmBackend::relaxInstruction(MCInst &Inst,
+                                         const MCSubtargetInfo &STI) const {
+  MCInst Res;
+  switch (Inst.getOpcode()) {
+  default:
+    llvm_unreachable("Opcode not expected!");
+  case Tricore::Jsb:
+  case Tricore::JZsb:
+  case Tricore::JZsbr:
+  case Tricore::JNZsb:
+  case Tricore::JNZsbr:
+  case Tricore::JEQsbc:
+  case Tricore::JEQsbr:
+  case Tricore::JNEsbc:
+  case Tricore::JNEsbr:
+  case Tricore::JGEZsbr:
+  case Tricore::JGTZsbr:
+  case Tricore::JLEZsbr:
+  case Tricore::JLTZsbr:
+    [[maybe_unused]] bool Success = TricoreCI::uncompress(Res, Inst, STI);
+    assert(Success && "Can't uncompress instruction");
+    break;
   }
 
-  for (; Count >= 2; Count -= 2)
-    OS.write("\0\0", 2);
-
-  return true;
+  Inst = std::move(Res);
 }
 
 MCAsmBackend *llvm::createTricoreAsmBackend(const Target &T,

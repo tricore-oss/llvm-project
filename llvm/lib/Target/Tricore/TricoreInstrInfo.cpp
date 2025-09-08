@@ -29,6 +29,8 @@
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/MC/MCInstrDesc.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetMachine.h"
 #include <cassert>
 #include <iterator>
@@ -127,7 +129,8 @@ bool TricoreInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
     Cond.push_back(MachineOperand::CreateImm(CondBranch->getOpcode()));
     Cond.push_back(CondBranch->getOperand(0));
     Cond.push_back(CondBranch->getOperand(1));
-    TBB = CondBranch->getOperand(CondBranch->getNumExplicitOperands() - 1).getMBB();
+    TBB = CondBranch->getOperand(CondBranch->getNumExplicitOperands() - 1)
+              .getMBB();
     return false;
   }
 
@@ -296,4 +299,41 @@ void TricoreInstrInfo::loadRegFromStackSlot(
         .addMemOperand(MMO);
   else
     llvm_unreachable("Can't load this register from stack slot");
+}
+
+unsigned TricoreInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+  return MI.getDesc().getSize();
+}
+
+MachineBasicBlock *
+TricoreInstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
+  assert(MI.getDesc().isBranch() && "Unexpected opcode!");
+  // The branch target is always the last operand.
+  int NumOp = MI.getNumExplicitOperands();
+  return MI.getOperand(NumOp - 1).getMBB();
+}
+
+bool TricoreInstrInfo::isBranchOffsetInRange(unsigned BranchOpc,
+                                             int64_t BrOffset) const {
+  switch (BranchOpc) {
+  case Tricore::J:
+    return isShiftedInt<24, 1>(BrOffset);
+  case Tricore::JEQbrc:
+  case Tricore::JNEbrc:
+  case Tricore::JGEbrc:
+  case Tricore::JGE_Ubrc:
+  case Tricore::JLTbrc:
+  case Tricore::JLT_Ubrc:
+  case Tricore::JEQbrr:
+  case Tricore::JNEbrr:
+  case Tricore::JGEbrr:
+  case Tricore::JGE_Ubrr:
+  case Tricore::JLTbrr:
+  case Tricore::JLT_Ubrr:
+  case Tricore::JZ_T:
+  case Tricore::JNZ_T:
+    return isShiftedInt<15, 1>(BrOffset);
+  default:
+    llvm_unreachable("unknown branch opv");
+  }
 }

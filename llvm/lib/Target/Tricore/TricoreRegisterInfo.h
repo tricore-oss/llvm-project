@@ -1,4 +1,4 @@
-//===- TricoreRegisterInfo.h - Tricore Register Information Impl ------*- C++ -*-===//
+//=== TricoreRegisterInfo.h - Tricore Register Information Impl -*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the Tricore implementation of the TargetRegisterInfo class.
+// This file contains the Tricore implementation of the TargetRegisterInfo
+// class.
 //
 //===----------------------------------------------------------------------===//
 
@@ -26,9 +27,7 @@ class TargetRegisterClass;
 
 class TricoreRegisterInfo : public TricoreGenRegisterInfo {
 public:
-
   TricoreRegisterInfo();
-
 
   /// Code Generation virtual methods...
   const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
@@ -41,8 +40,8 @@ public:
   BitVector getReservedRegs(const MachineFunction &MF) const override;
 
   /// Stack Frame Processing Methods
-  bool eliminateFrameIndex(MachineBasicBlock::iterator II,
-                           int SPAdj, unsigned FIOperandNum,
+  bool eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
+                           unsigned FIOperandNum,
                            RegScavenger *RS = nullptr) const override;
 
   /// Debug information queries.
@@ -50,6 +49,9 @@ public:
 
   // /// Return GPR register class.
   // virtual const TargetRegisterClass *intRegClass(unsigned Size) const = 0;
+  const TargetRegisterClass *
+  getLargestLegalSuperClass(const TargetRegisterClass *RC,
+                            const MachineFunction &MF) const override;
 };
 
 } // end namespace llvm

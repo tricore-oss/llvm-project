@@ -123,3 +123,15 @@ TricoreRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TricoreFrameLowering *TFI = getFrameLowering(MF);
   return TFI->hasFP(MF) ? Tricore::A14 : Tricore::A10;
 }
+
+const TargetRegisterClass *TricoreRegisterInfo::getLargestLegalSuperClass(
+    const TargetRegisterClass *RC, const MachineFunction &MF) const {
+  switch (RC->getID()) {
+  case Tricore::DGPRRegClassID:
+    return &Tricore::EGPRRegClass;
+  case Tricore::AGPRRegClassID:
+    return &Tricore::PGPRRegClass;
+  default:
+    return RC;
+  }
+}

@@ -149,7 +149,7 @@ public:
 
   // void addIRPasses() override;
   bool addInstSelector() override;
-  // void addPreEmitPass() override;
+  void addPreEmitPass() override;
   // void addPreRegAlloc() override;
   // bool addIRTranslator() override;
   // void addPreLegalizeMachineIR() override;
@@ -164,6 +164,10 @@ public:
 bool TricorePassConfig::addInstSelector() {
   addPass(createTricoreISelDag(getTricoreTargetMachine()));
   return false;
+}
+
+void TricorePassConfig::addPreEmitPass() {
+    addPass(&BranchRelaxationPassID);
 }
 
 } // end anonymous namespace

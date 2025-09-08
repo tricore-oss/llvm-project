@@ -84,6 +84,10 @@ public:
       int FrameIndex, const TargetRegisterClass *RC,
       const TargetRegisterInfo *TRI, Register VReg,
       MachineInstr::MIFlag Flags = MachineInstr::NoFlags) const override;
+  unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
+  MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
+  bool isBranchOffsetInRange(unsigned BranchOpc,
+                                     int64_t BrOffset) const override;
 };
 
 } // end namespace llvm
