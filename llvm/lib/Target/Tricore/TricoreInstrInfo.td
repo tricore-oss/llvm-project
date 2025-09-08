@@ -161,14 +161,14 @@ class MemAsmOperand<int bitsNum, IndexMode mode> : AsmOperandClass {
   let DiagnosticType = "InvalidMem";
 }
 
-class MemBO<IndexMode mode> : Operand<i32> {
+class MemBO<IndexMode mode> : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops AGPR, simm10);
   let ParserMatchClass = MemAsmOperand<10, mode>;
   let OperandType = "OPERAND_MEMORY";
 }
 
-def MemBOL : Operand<i32> {
+def MemBOL : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops AGPR, simm16);
   let ParserMatchClass = MemAsmOperand<16, IndexModeNone>;
@@ -409,115 +409,36 @@ def : Pat<(store(v2i32 EGPR:$a), AddrRegImmBO:$addr), (STDbo AddrRegImmBO:$addr,
 //===----------------------------------------------------------------------===//
 // Move instructions
 //===----------------------------------------------------------------------===//
-let isMoveImm = 1 in {
-
+let isMoveImm = 1, a = 0 in {
   def MOVrlc
       : TCInstRLC<0x3B, (outs DGPR:$c),
                   (ins simm16:$const16), [(set DGPR:$c, simm16:$const16)],
-                  "mov",
-                  "$c, "
-                  "$const16"> {
-    let a = 0;
-  }
-  def MOVErlc
-      : TCInstRLC<0xFB, (outs EGPR:$c),
-                  (ins simm16_64:$const16), [(set EGPR:$c, simm16_64:$const16)],
-                  "mov",
-                  "$c, "
-                  "$const16"> {
-    let a = 0;
-  }
-  def MOVHArlc
-      : TCInstRLC<0x91, (outs AGPR:$c), (ins uimm16:$const16), [], "movh.a",
-                  "$c, "
-                  "$const16"> {
-    let a = 0;
-  }
-}
-
-let isMoveReg = 1 in {
-
-  def MOVrr : TCInstRR<0x1F, 0x0B, (outs DGPR:$c), (ins DGPR:$b), [], "mov",
-                       "$c, $b"> {
-    let a = 0;
-  }
-  def MOVEDrr : TCInstRR<0x0B, 0x80, (outs EGPR:$c), (ins DGPR:$b), [], "mov",
-                         "$c, $b"> {
-    let a = 0;
-  }
-  def MOVEDDrr
-      : TCInstRR<0x0B, 0x81, (outs EGPR:$c), (ins DGPR:$a, DGPR:$b), [], "mov",
-                 "$c, $a, "
-                 "$b">;
-
+                  "mov", "$c, $const16">;
   def MOVHrlc
       : TCInstRLC<0x7B, (outs DGPR:$c),
                   (ins simm16:$const16), [(set DGPR:$c, lo16AllZero:$const16)],
-                  "movh",
-                  "$c, "
-                  "$const16"> {
-    let a = 0;
-  }
+                  "movh", "$c, $const16">;
+  def MOVErlc
+      : TCInstRLC<0xFB, (outs EGPR:$c),
+                  (ins simm16_64:$const16), [(set EGPR:$c, simm16_64:$const16)],
+                  "mov", "$c, $const16">;
+}
 
+let isMoveReg = 1, a = 0 in {
+  def MOVrr : TCInstRR<0x1F, 0x0B, (outs DGPR:$c), (ins DGPR:$b), [], "mov",
+                       "$c, $b">;
+  def MOVEDrr : TCInstRR<0x0B, 0x80, (outs EGPR:$c), (ins DGPR:$b), [], "mov",
+                         "$c, $b">;
   def MOVDrr : TCInstRR<0x01, 0x4C, (outs DGPR:$c), (ins AGPR:$b), [], "mov.d",
-                        "$c, $b"> {
-    let a = 0;
+                        "$c, $b">;
   }
-  def MOVD_SRR
-      : TCInstSRR<0x80, (outs DGPR:$a), (ins AGPR:$b), "mov.d", "$a, $b">;
 
-  def MOVArr : TCInstRR<0x01, 0x63, (outs AGPR:$c), (ins DGPR:$b), [], "mov.a",
-                        "$c, $b"> {
-    let a = 0;
-  }
-  def MOVA_SRC : TCInstSRC<0xA0, (outs AGPR:$a), (ins uimm4:$const4), "mov.a",
-                           "$a, "
-                           "$const4">;
-  def MOVA_SRR
-      : TCInstSRR<0x60, (outs AGPR:$a), (ins DGPR:$b), "mov.a", "$a, $b">;
-
-  def MOVAArr : TCInstRR<0x01, 0x00, (outs AGPR:$c), (ins AGPR:$b), [],
-                         "mov.aa", "$c, $b"> {
-    let a = 0;
-  }
-  def MOVAA_SRR
-      : TCInstSRR<0x40, (outs AGPR:$a), (ins AGPR:$b), "mov.aa", "$a, $b">;
+let isMoveReg = 1 in {
+  def MOVEDDrr : TCInstRR<0x0B, 0x81, (outs EGPR:$c),
+                          (ins DGPR:$a, DGPR:$b), [], "mov", "$c, $a, $b">;
 }
 
 def : Pat<(i64(sext(i32 DGPR:$b))), (MOVEDrr DGPR:$b)>;
-
-//===--
-// Address Instructions
-//===--
-def LEAbo : TCInstBO<0x49, 0x28, IndexModePost, (outs AGPR:$a),
-                     (ins AGPR:$b, simm10:$off10), [], "lea",
-                     "$a, $b, "
-                     "$off10">;
-
-def LEAbol
-    : TCInstBOL<0xD9, (outs AGPR:$a), (ins AGPR:$b, simm16:$off16), [], "lea",
-                "$a, $b, "
-                "$off16">;
-
-def copyFromSP : PatLeaf<(i32 AGPR:$src), [{
-  return N->getOpcode() == ISD::CopyFromReg &&
-         cast<RegisterSDNode>(N->getOperand(1))->getReg() == Tricore::A10;
-}]>;
-def : Pat<(add copyFromSP:$a, simm16:$off16), (LEAbol AGPR:$a, simm16:$off16)>;
-
-def : Pat<(tricore_movha tglobaladdr:$in), (MOVHArlc tglobaladdr:$in)>;
-def : Pat<(tricore_movha tblockaddress:$in), (MOVHArlc tblockaddress:$in)>;
-def : Pat<(tricore_movha tjumptable:$in), (MOVHArlc tjumptable:$in)>;
-def : Pat<(tricore_movha tconstpool:$in), (MOVHArlc tconstpool:$in)>;
-
-def : Pat<(tricore_lea AGPR:$hi, tglobaladdr:$lo), (LEAbol AGPR:$hi,
-                                                       tglobaladdr:$lo)>;
-def : Pat<(tricore_lea AGPR:$hi, tblockaddress:$lo), (LEAbol AGPR:$hi,
-                                                         tblockaddress:$lo)>;
-def : Pat<(tricore_lea AGPR:$hi, tjumptable:$lo), (LEAbol AGPR:$hi,
-                                                      tjumptable:$lo)>;
-def : Pat<(tricore_lea AGPR:$hi, tconstpool:$lo), (LEAbol AGPR:$hi,
-                                                      tconstpool:$lo)>;
 
 //===----------------------------------------------------------------------===//
 //  Add instructions
@@ -641,8 +562,6 @@ def SUBrr
           0x0B, 0x08, (outs DGPR:$c),
           (ins DGPR:$a, DGPR:$b), [(set DGPR:$c, (sub(i32 DGPR:$a), DGPR:$b))],
           "sub", "$c, $a, $b">;
-def SUBArr : TCInstRR<0x01, 0x02, (outs AGPR:$c), (ins AGPR:$a, AGPR:$b), [],
-                      "sub.a", "$c, $a, $b">;
 def RSUBrc
     : TCInstRC<0x8B, 0x08, (outs DGPR:$c), (ins simm9:$const9, DGPR:$a),
                [(set DGPR:$c, (sub simm9:$const9, (i32 DGPR:$a)))], "rsub",
@@ -1136,8 +1055,8 @@ def SUBF : FPInstBinary<0x6B, 0x3, any_fsub, "sub.f">;
 // UPDFL
 def UTOF : I32InstRRUnary<0x4B, 0x16, any_uint_to_fp, "utof">;
 
-def : Pat<(i32(bitconvert (f32 DGPR:$a))),(i32 DGPR:$a)>;
-def : Pat<(f32(bitconvert (i32 DGPR:$a))),(f32 DGPR:$a)>;
+def : Pat<(i32(bitconvert(f32 DGPR:$a))), (i32 DGPR:$a)>;
+def : Pat<(f32(bitconvert(i32 DGPR:$a))), (f32 DGPR:$a)>;
 def : Pat<(fcopysign(f32 DGPR:$a), (f32 DGPR:$b)),
           (f32(INSERTrrpw(f32 DGPR:$a), (EXTRUrrpw(f32 DGPR:$b), 31, 1), 31,
               1))>;
@@ -1152,6 +1071,61 @@ def MTCR : TCInstRLC<0xCD, (outs), (ins tuimm16:$const16, DGPR:$a),
                      "$a"> {
   let c = 0;
 }
+
+//===
+// Address Instructions
+//
+let isMoveReg = 1, a = 0 in {
+  def MOVArr : TCInstRR<0x01, 0x63, (outs AGPR:$c), (ins DGPR:$b), [], "mov.a",
+                        "$c, $b">;
+  def MOVAArr : TCInstRR<0x01, 0x00, (outs AGPR:$c), (ins AGPR:$b), [],
+                         "mov.aa", "$c, $b">;
+  def MOVHArlc : TCInstRLC<0x91, (outs AGPR:$c), (ins uimm16:$const16), [],
+                           "movh.a", "$c, $const16">;
+}
+
+def LEAbo : TCInstBO<0x49, 0x28, IndexModePost, (outs AGPR:$a),
+                     (ins AGPR:$b, simm10:$off10), [], "lea", "$a, $b, $off10">;
+def LEAbol : TCInstBOL<0xD9, (outs AGPR:$a), (ins AGPR:$b, simm16:$off16), [],
+                       "lea", "$a, $b, $off16">;
+
+// Transforms frameindex
+// -> tframeindex.
+def to_tframeindex : SDNodeXForm<frameindex, [{
+  return CurDAG->getTargetFrameIndex(N->getIndex(), N->getValueType(0));
+}]>;
+
+def : GICustomOperandRenderer<"renderFrameIndex">,
+      GISDNodeXFormEquiv<to_tframeindex>;
+
+def : Pat<(frameindex:$fi), (LEAbol(iPTR(to_tframeindex $fi)), 0)>;
+def : Pat<(sub frameindex:$fi, simm16:$const16),
+          (LEAbol(iPTR(to_tframeindex $fi)), (negate simm16:$const16))>;
+
+def ADD_A : TCInstRR<0x1, 0x1, (outs AGPR:$c), (ins AGPR:$a, AGPR:$b), [],
+                     "add.a", "$c, $a, $b">;
+def SUB_Arr : TCInstRR<0x01, 0x02, (outs AGPR:$c), (ins AGPR:$a, AGPR:$b), [],
+                       "sub.a", "$c, $a, $b">;
+
+def copyFromSP : PatLeaf<(i32 AGPR:$src), [{
+  return N->getOpcode() == ISD::CopyFromReg &&
+         cast<RegisterSDNode>(N->getOperand(1))->getReg() == Tricore::A10;
+}]>;
+def : Pat<(add copyFromSP:$a, simm16:$off16), (LEAbol AGPR:$a, simm16:$off16)>;
+
+def : Pat<(tricore_movha tglobaladdr:$in), (MOVHArlc tglobaladdr:$in)>;
+def : Pat<(tricore_movha tblockaddress:$in), (MOVHArlc tblockaddress:$in)>;
+def : Pat<(tricore_movha tjumptable:$in), (MOVHArlc tjumptable:$in)>;
+def : Pat<(tricore_movha tconstpool:$in), (MOVHArlc tconstpool:$in)>;
+
+def : Pat<(tricore_lea AGPR:$hi, tglobaladdr:$lo), (LEAbol AGPR:$hi,
+                                                       tglobaladdr:$lo)>;
+def : Pat<(tricore_lea AGPR:$hi, tblockaddress:$lo), (LEAbol AGPR:$hi,
+                                                         tblockaddress:$lo)>;
+def : Pat<(tricore_lea AGPR:$hi, tjumptable:$lo), (LEAbol AGPR:$hi,
+                                                      tjumptable:$lo)>;
+def : Pat<(tricore_lea AGPR:$hi, tconstpool:$lo), (LEAbol AGPR:$hi,
+                                                      tconstpool:$lo)>;
 
 //===----------------------------------------------------------------------===//
 //  Pattern

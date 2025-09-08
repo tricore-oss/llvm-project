@@ -71,9 +71,7 @@ defm ADDsrc_inout : CBinOpImmInOut<0xC2, "ADD", "add">;
 defm ADDsrr : CBinOp<0x1A, "ADD", "add">;
 defm ADDsrr_out : CBinOpOut<0x12, "ADD", "add">;
 defm ADDsrr_inout : CBinOpInOut<0x42, "ADD", "add">;
-// ADD_A
 // ADDS
-// ADDSC_A
 defm ANDsc : CBinOpImmOnly<0x16, "AND", "and">;
 defm ANDsrc : CBinOpInOut<0x26, "AND", "and">;
 // EQ
@@ -85,6 +83,8 @@ defm ANDsrc : CBinOpInOut<0x26, "AND", "and">;
 // SH
 // SHA
 // SUB
+// SUBS
+// XOR
 
 // Conditional instructions
 let Constraints = "$c = $a" in {
@@ -110,20 +110,46 @@ def : CompressPat<(SELNrrr DGPR:$a, D15, DGPR:$a, DGPR:$b), (CMOVsrr DGPR:$a,
 def : CompressPat<(SELrrr DGPR:$a, D15, DGPR:$a, DGPR:$b), (CMOVNsrr DGPR:$a,
                                                                DGPR:$b)>;
 
+// Address instructions
+// ADD_A
+// ADDSC_A
 def SUB_Asc
     : TCInstSC<0x20, (outs), (ins uimm8:$const8), "sub.a", "a10, $const8"> {
   let Uses = [A10];
   let Defs = [A10];
 }
 
-// SUBS
-// XOR
-
 // Move instructions
-// MOV
-// MOV_A
-// MOV_AA
-// MOV_D
+let isMoveImm = 1 in {
+  def MOVsc
+      : TCInstSC<0xDA, (outs), (ins uimm8:$const8), "mov", "d15, $const8">;
+  def MOVsrc : TCInstSRC<0x82, (outs DGPR:$a), (ins simm4:$const4), "mov",
+                         "$a, $const4">;
+  def MOVEsrc : TCInstSRC<0xD2, (outs EGPR:$a), (ins simm4:$const4), "mov",
+                          "$a, $const4">;
+  def MOVAsrc : TCInstSRC<0xA0, (outs AGPR:$a), (ins uimm4:$const4), "mov.a",
+                          "$a, $const4">;
+}
+def : CompressPat<(MOVrlc D15, uimm8:$const8), (MOVsc uimm8:$const8)>;
+def : CompressPat<(MOVrlc DGPR:$a, simm4:$const4), (MOVsrc DGPR:$a,
+                                                       simm4:$const4)>;
+def : CompressPat<(MOVErlc EGPR:$a, simm4:$const4), (MOVEsrc EGPR:$a,
+                                                        simm4:$const4)>;
+// def : CompressPat<(LEAabs AGPR:$a, simm4:$const4), (MOVAsrc DGPR:$a,
+//                                                        simm4:$const4)>;
+let isMoveReg = 1 in {
+  def MOVsrr : TCInstSRR<0x02, (outs DGPR:$a), (ins DGPR:$b), "mov", "$a, $b">;
+  def MOVAsrr
+      : TCInstSRR<0x60, (outs AGPR:$a), (ins DGPR:$b), "mov.a", "$a, $b">;
+  def MOVAAsrr
+      : TCInstSRR<0x40, (outs AGPR:$a), (ins AGPR:$b), "mov.aa", "$a, $b">;
+  def MOVDsrr
+      : TCInstSRR<0x80, (outs DGPR:$a), (ins AGPR:$b), "mov.d", "$a, $b">;
+}
+def : CompressPat<(MOVrr DGPR:$a, DGPR:$b), (MOVsrr DGPR:$a, DGPR:$b)>;
+def : CompressPat<(MOVArr AGPR:$a, DGPR:$b), (MOVAsrr AGPR:$a, DGPR:$b)>;
+def : CompressPat<(MOVAArr AGPR:$a, AGPR:$b), (MOVAAsrr AGPR:$a, AGPR:$b)>;
+def : CompressPat<(MOVDrr DGPR:$a, AGPR:$b), (MOVDsrr DGPR:$a, AGPR:$b)>;
 
 // Branch Instructions
 multiclass CCall<bits<8> op1, bits<4> op2> {
