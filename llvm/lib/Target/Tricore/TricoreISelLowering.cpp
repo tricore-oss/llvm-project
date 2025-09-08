@@ -121,10 +121,12 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   setOperationAction({ISD::SHL_PARTS, ISD::SRA_PARTS, ISD::SRL_PARTS}, MVT::i32,
                      Expand); // TODO: Optimize
 
-  // BRCC
-  // setOperationAction(ISD::BR_CC, MVT::i32, Expand);
+  // Jump & Select
+  // brcc and selectcc are handled by DAG
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
-  setOperationAction(ISD::SELECT_CC, {MVT::f32, MVT::i32}, Expand);
+  setCondCodeAction({ISD::CondCode::SETLE, ISD::CondCode::SETULE,
+                     ISD::CondCode::SETGT, ISD::CondCode::SETUGT},
+                    MVT::i32, Expand);
 
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
   setOperationAction(ISD::VAARG, MVT::Other, Expand);

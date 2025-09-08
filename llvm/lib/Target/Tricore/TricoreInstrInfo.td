@@ -265,6 +265,18 @@ def tricore_xor_t : SDNode<"TricoreISD::XOR_T", SDT_BIT>;
 //===----------------------------------------------------------------------===//
 // Instructions
 //===----------------------------------------------------------------------===//
+class InstRC<bits<8> op1, bits<7> op2, string opcodestr,
+             list<dag> patterns = []>
+    : TCInstRC<op1, op2, (outs DGPR:$c), (ins DGPR:$a, simm9:$const9), patterns,
+               opcodestr, "$c, $a, $const9">;
+class InstRR<bits<8> op1, bits<8> op2, string opcodestr,
+             list<dag> patterns = []>
+    : TCInstRR<op1, op2, (outs DGPR:$c), (ins DGPR:$a, DGPR:$b), patterns,
+               opcodestr, "$c, $a, $b">;
+
+//===----------------------------------------------------------------------===//
+// Instructions
+//===----------------------------------------------------------------------===//
 
 let isBarrier = 1, isReturn = 1, isTerminator = 1 in {
   def RET
@@ -581,15 +593,10 @@ multiclass cond_inferred<CondCode cond, Instruction inst, Instruction instb,
   def : Pat<(i32(setcc(i32 DGPR:$a), simm9:$const9, cond)),
             (inst DGPR:$a, (plus1 simm9:$const9))>;
   def : Pat<(i32(setcc(i32 DGPR:$a), DGPR:$b, cond)), (instb DGPR:$b, DGPR:$a)>;
-  /* TODO: +1*/
-  def : InstAlias<!strconcat(asmstring, "\t$c, "
-                                        "$a, "
-                                        "$const"
-                                        "9"),
+
+  def rc : InstAlias<!strconcat(asmstring, "\t$c,$a, $const9"),
                   (inst DGPR:$c, DGPR:$a, simm9:$const9)>;
-  def : InstAlias<!strconcat(asmstring, "\t$c, "
-                                        "$a, "
-                                        "$b"),
+  def rr : InstAlias<!strconcat(asmstring, "\t$c, $a, $b"),
                   (instb DGPR:$c, DGPR:$b, DGPR:$a)>;
 }
 
@@ -599,15 +606,15 @@ defm ADDC : arithmetic<0x0B, 0x5, addc, "addc">;
 defm EQ : arithmetic_cond<0x0B, 0x10, SETEQ, "eq">;
 defm NE : arithmetic_cond<0x0B, 0x11, SETNE, "ne">;
 defm LT : arithmetic_cond<0xB, 0x12, SETLT, "lt">;
-defm LTU : arithmetic_cond<0x0B, 0x13, SETULT, "lt.u">;
+defm LT_U : arithmetic_cond<0x0B, 0x13, SETULT, "lt.u">;
 defm GE : arithmetic_cond<0xB, 0x14, SETGE, "ge">;
-defm GEU : arithmetic_cond<0xB, 0x15, SETUGE, "ge.u">;
+defm GE_U : arithmetic_cond<0xB, 0x15, SETUGE, "ge.u">;
 defm ABSDIF : arithmetic<0x0B, 0xE, abds, "absdif">;
 // TODO: abdu
 defm GT : cond_inferred<SETGT, GErc, LTrr, "gt">;
-defm GTU : cond_inferred<SETUGT, GEUrc, LTUrr, "gt.u">;
+defm GT_U : cond_inferred<SETUGT, GE_Urc, LT_Urr, "gt.u">;
 defm LE : cond_inferred<SETLE, LTrc, GErr, "le">;
-defm LEU : cond_inferred<SETULE, LTUrc, GEUrr, "le.u">;
+defm LE_U : cond_inferred<SETULE, LT_Urc, GE_Urr, "le.u">;
 
 defm SH : arithmetic<0x0F, 0x0, shl, "sh">;
 defm SHA : arithmetic<0xF, 0x1, shl, "sha">;
@@ -724,22 +731,6 @@ def : Pat<(frameindex:$fi), (LEAbol(iPTR(to_tframeindex $fi)), 0)>;
 def : Pat<(sub frameindex:$fi, simm16:$const16),
           (LEAbol(iPTR(to_tframeindex $fi)), (negate simm16:$const16))>;
 
-// Select
-
-def SELrcr
-    : TCInstRCR<
-          0xAB, 0x4, (outs DGPR:$c), (ins DGPR:$d, DGPR:$a, simm9:$const9),
-          [(set DGPR:$c, (select(i32 DGPR:$d), DGPR:$a, simm9:$const9))], "sel",
-          "$c, $d, $a, "
-          "$const9">;
-def SELrrr
-    : TCInstRRR<0x2B, 0x4, (outs DGPR:$c), (ins DGPR:$d, DGPR:$a, DGPR:$b),
-                [(set DGPR:$c, (i32(select(i32 DGPR:$d), DGPR:$a, DGPR:$b)))],
-                "sel",
-                "$c, $d, $a, "
-                "$b">;
-def : Pat<(f32(select(i32 DGPR:$d), (f32 DGPR:$a), (f32 DGPR:$b))),
-          (SELrrr(i32 DGPR:$d), (f32 DGPR:$a), (f32 DGPR:$b))>;
 // Branch conditional
 multiclass cond_branch_unsigned<CondCode cond, CondCode condu, int op1,
                                 string asmstring> {
@@ -868,6 +859,93 @@ def : Pat<(tricore_call tglobaladdr:$disp24), (CALL tglobaladdr:$disp24)>;
 def : Pat<(tricore_call texternalsym:$disp24), (CALL texternalsym:$disp24)>;
 def : Pat<(tricore_tail tglobaladdr:$disp24), (PseudoTAIL disp24:$disp24)>;
 def : Pat<(tricore_tail texternalsym:$disp24), (PseudoTAIL disp24:$disp24)>;
+
+// Select
+multiclass selectcc_inst<int op1, int op2, CondCode cond, CondCode condu> {
+  def rc : InstRC<!add(op1, 0x80), op2, !tolower(NAME)>;
+  def rr : InstRR<op1, op2, !tolower(NAME)>;
+  def _Urc : InstRC<!add(op1, 0x80), !add(op2, 1), !tolower(NAME#".u")>;
+  def _Urr : InstRR<op1, !add(op2, 1), !tolower(NAME#".u")>;
+  def _Hrc : InstRC<!add(op1, 0x80), !add(op2, 0x60), !tolower(NAME#".h")>;
+  def _Hrr : InstRR<op1, !add(op2, 0x60), !tolower(NAME#".h")>;
+  def _HUrc : InstRC<!add(op1, 0x80), !add(op2, 0x61), !tolower(NAME#".hu")>;
+  def _HUrr : InstRR<op1, !add(op2, 0x61), !tolower(NAME#".hu")>;
+  def _Brc : InstRC<!add(op1, 0x80), !add(op2, 0x40), !tolower(NAME#".b")>;
+  def _Brr : InstRR<op1, !add(op2, 0x40), !tolower(NAME#".b")>;
+  def _BUrc : InstRC<!add(op1, 0x80), !add(op2, 0x41), !tolower(NAME#".bu")>;
+  def _BUrr : InstRR<op1, !add(op2, 0x41), !tolower(NAME#".bu")>;
+
+  def : Pat<(selectcc(i32 DGPR:$a), simm9:$const9, DGPR:$a, simm9:$const9,
+                cond),
+            (!cast<Instruction>(NAME#rc) DGPR:$a, simm9:$const9)>;
+  def : Pat<(selectcc(i32 DGPR:$a), (i32 DGPR:$b), DGPR:$a, DGPR:$b, cond),
+            (!cast<Instruction>(NAME#rr) DGPR:$a, DGPR:$b)>;
+  def : Pat<(selectcc(i32 DGPR:$a), simm9:$const9, DGPR:$a, simm9:$const9,
+                condu),
+            (!cast<Instruction>(NAME#_Urc) DGPR:$a, simm9:$const9)>;
+  def : Pat<(selectcc(i32 DGPR:$a), (i32 DGPR:$b), DGPR:$a, DGPR:$b, condu),
+            (!cast<Instruction>(NAME#_Urr) DGPR:$a, DGPR:$b)>;
+
+  def : Pat<(vselect(setcc(v4i8 DGPR:$a), DGPR:$b, cond), (v4i8 DGPR:$a),
+                DGPR:$b),
+            (!cast<Instruction>(NAME#_Brr) DGPR:$a, DGPR:$b)>;
+}
+
+multiclass select_inst<int op2, CondCode cond> {
+  def rcr : TCInstRCR<0xAB, op2, (outs DGPR:$c),
+                      (ins DGPR:$d, DGPR:$a, simm9:$const9), [], !tolower(NAME),
+                      "$c, $d, $a, $const9">;
+  def rrr : TCInstRRR<0x2B, op2, (outs DGPR:$c),
+                      (ins DGPR:$d, DGPR:$a, DGPR:$b), [], !tolower(NAME),
+                      "$c, $d, $a, $b">;
+
+  def : Pat<(selectcc(i32 DGPR:$d), 0, (i32 DGPR:$a), simm9:$const9, cond),
+            (!cast<Instruction>(NAME#rcr) DGPR:$d, DGPR:$a, simm9:$const9)>;
+  def : Pat<(selectcc(i32 DGPR:$d), 0, (i32 DGPR:$a), DGPR:$b, cond),
+            (!cast<Instruction>(NAME#rrr) DGPR:$d, DGPR:$a, DGPR:$b)>;
+}
+
+defm SEL : select_inst<0x4, SETNE>;
+defm SELN : select_inst<0x5, SETEQ>;
+defm MIN : selectcc_inst<0x0B, 0x18, SETLT, SETULT>;
+defm MAX : selectcc_inst<0x0B, 0x1A, SETGT, SETUGT>;
+
+// Additional patterns for optimizations
+def : Pat<(selectcc(i32 DGPR:$d), 0, simm9:$const9, (i32 DGPR:$a), SETEQ),
+          (SELrcr DGPR:$d, DGPR:$a, simm9:$const9)>;
+def : Pat<(selectcc(i32 DGPR:$d), 0, simm9:$const9, (i32 DGPR:$a), SETNE),
+          (SELNrcr DGPR:$d, DGPR:$a, simm9:$const9)>;
+
+multiclass selectcc_pat<string setcc, CondCode cc> {
+  def : Pat<(selectcc(i32 DGPR:$a), simm9:$const9, (i32 DGPR:$c), simm9:$const9,
+                cc),
+            (SELrcr(!cast<Instruction>(setcc#rc) DGPR:$a, simm9:$const9),
+                DGPR:$c, simm9:$const9)>;
+  def : Pat<(selectcc(i32 DGPR:$a), simm9:$const9, (i32 DGPR:$c), (i32 DGPR:$d),
+                cc),
+            (SELrrr(!cast<Instruction>(setcc#rc) DGPR:$a, simm9:$const9),
+                DGPR:$c, DGPR:$d)>;
+  def : Pat<(selectcc(i32 DGPR:$a), (i32 DGPR:$b), (i32 DGPR:$c), simm9:$const9,
+                cc),
+            (SELrcr(!cast<Instruction>(setcc#rr) DGPR:$a, DGPR:$b), DGPR:$c,
+                simm9:$const9)>;
+  def : Pat<(selectcc(i32 DGPR:$a), (i32 DGPR:$b), (i32 DGPR:$c), (i32 DGPR:$d),
+                cc),
+            (SELrrr(!cast<Instruction>(setcc#rr) DGPR:$a, DGPR:$b), DGPR:$c,
+                DGPR:$d)>;
+}
+
+defm : selectcc_pat<"EQ", SETEQ>;
+defm : selectcc_pat<"NE", SETNE>;
+defm : selectcc_pat<"GE", SETGE>;
+defm : selectcc_pat<"GE_U", SETUGE>;
+defm : selectcc_pat<"LT", SETLT>;
+defm : selectcc_pat<"LT_U", SETULT>;
+
+def : Pat<(i32(select(i32 DGPR:$d), (i32 DGPR:$a), (i32 DGPR:$b))),
+          (SELrrr(i32 DGPR:$d), (i32 DGPR:$a), (i32 DGPR:$b))>;
+def : Pat<(f32(select(i32 DGPR:$d), (f32 DGPR:$a), (f32 DGPR:$b))),
+          (SELrrr(i32 DGPR:$d), (f32 DGPR:$a), (f32 DGPR:$b))>;
 
 // Extract and Insert
 let b = 0 in {

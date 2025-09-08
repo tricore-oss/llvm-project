@@ -76,10 +76,6 @@ defm ADDsrr_inout : CBinOpInOut<0x42, "ADD", "add">;
 // ADDSC_A
 defm ANDsc : CBinOpImmOnly<0x16, "AND", "and">;
 defm ANDsrc : CBinOpInOut<0x26, "AND", "and">;
-// CADD
-// CADDN
-// CMOV
-// CMOVN
 // EQ
 // LT
 // MUL
@@ -89,6 +85,31 @@ defm ANDsrc : CBinOpInOut<0x26, "AND", "and">;
 // SH
 // SHA
 // SUB
+
+// Conditional instructions
+let Constraints = "$c = $a" in {
+  def CMOVsrc : TCInstSRC<0xAA, (outs DGPR:$a), (ins simm4:$const4, DGPR:$c),
+                          "cmov", "$a, d15, $const4">;
+  def CMOVNsrc : TCInstSRC<0xEA, (outs DGPR:$a), (ins simm4:$const4, DGPR:$c),
+                           "cmov", "$a, d15, $const4">;
+  def CMOVsrr : TCInstSRR<0x2A, (outs DGPR:$a), (ins DGPR:$b, DGPR:$c), "cmov",
+                          "$a, d15, $b">;
+  def CMOVNsrr : TCInstSRR<0x6A, (outs DGPR:$a), (ins DGPR:$b, DGPR:$c), "cmov",
+                           "$a, d15, $b">;
+}
+// CADD
+// CADDN
+// CSUB
+// CSUBN
+def : CompressPat<(SELNrcr DGPR:$a, D15, DGPR:$a, simm4:$const4),
+                  (CMOVsrc DGPR:$a, simm4:$const4)>;
+def : CompressPat<(SELrcr DGPR:$a, D15, DGPR:$a, simm4:$const4),
+                  (CMOVNsrc DGPR:$a, simm4:$const4)>;
+def : CompressPat<(SELNrrr DGPR:$a, D15, DGPR:$a, DGPR:$b), (CMOVsrr DGPR:$a,
+                                                                DGPR:$b)>;
+def : CompressPat<(SELrrr DGPR:$a, D15, DGPR:$a, DGPR:$b), (CMOVNsrr DGPR:$a,
+                                                               DGPR:$b)>;
+
 def SUB_Asc
     : TCInstSC<0x20, (outs), (ins uimm8:$const8), "sub.a", "a10, $const8"> {
   let Uses = [A10];
