@@ -197,6 +197,10 @@ def negate : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant((uint32_t)(0 - N->getZExtValue()), SDLoc(N),
                                    MVT::i32);
 }]>;
+def mask_to_bit : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(__builtin_ctzll(N->getZExtValue()), SDLoc(N),
+                                   MVT::i32);
+}]>;
 
 def lo16AllZero : PatLeaf<(i32 imm), [{
   // Returns true if all low 16-bits are 0.
@@ -279,8 +283,7 @@ class InstRR<bits<8> op1, bits<8> op2, string opcodestr,
 //===----------------------------------------------------------------------===//
 
 let isBarrier = 1, isReturn = 1, isTerminator = 1 in {
-  def RET
-      : TCInstSYS<0x0D, 0x06, (outs), (ins), [(tricore_ret_glue)], "ret"> {
+  def RET : TCInstSYS<0x0D, 0x06, (outs), (ins), [(tricore_ret_glue)], "ret"> {
     let s1 = 0;
   }
 }
@@ -431,7 +434,7 @@ let isMoveReg = 1, a = 0 in {
                          "$c, $b">;
   def MOVDrr : TCInstRR<0x01, 0x4C, (outs DGPR:$c), (ins AGPR:$b), [], "mov.d",
                         "$c, $b">;
-  }
+}
 
 let isMoveReg = 1 in {
   def MOVEDDrr : TCInstRR<0x0B, 0x81, (outs EGPR:$c),
@@ -516,9 +519,9 @@ multiclass cond_inferred<CondCode cond, Instruction inst, Instruction instb,
   def : Pat<(i32(setcc(i32 DGPR:$a), DGPR:$b, cond)), (instb DGPR:$b, DGPR:$a)>;
 
   def rc : InstAlias<!strconcat(asmstring, "\t$c,$a, $const9"),
-                  (inst DGPR:$c, DGPR:$a, simm9:$const9)>;
+                     (inst DGPR:$c, DGPR:$a, simm9:$const9)>;
   def rr : InstAlias<!strconcat(asmstring, "\t$c, $a, $b"),
-                  (instb DGPR:$c, DGPR:$b, DGPR:$a)>;
+                     (instb DGPR:$c, DGPR:$b, DGPR:$a)>;
 }
 
 defm ADD : arithmetic<0x0B, 0x0, add, "add">;
@@ -641,8 +644,8 @@ multiclass cond_branch<int op1, int op2, CondCode cond> {
   let isBranch = 1, isTerminator = 1 in {
     def brc
         : TCInstBRC<!add(op1, 0x80), op2, (outs),
-                        (ins DGPR:$a, simm4:$const4, br_disp15:$disp15),
-                        [(brcc cond, (i32 DGPR:$a), simm4:$const4, bb:$disp15)],
+                    (ins DGPR:$a, simm4:$const4, br_disp15:$disp15),
+                    [(brcc cond, (i32 DGPR:$a), simm4:$const4, bb:$disp15)],
                     !subst("_", ".", !tolower(NAME)), "$a, $const4, $disp15">;
     def brr
         : TCInstBRR<op1, op2, (outs), (ins DGPR:$a, DGPR:$b, br_disp15:$disp15),
