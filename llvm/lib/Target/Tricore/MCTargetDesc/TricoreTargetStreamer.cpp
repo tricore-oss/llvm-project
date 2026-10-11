@@ -46,9 +46,10 @@ TricoreTargetELFStreamer::TricoreTargetELFStreamer(MCStreamer &S,
                                                const MCSubtargetInfo &STI)
     : TricoreTargetStreamer(S) {
   ELFObjectWriter &W = getStreamer().getWriter();
-  unsigned EFlags = W.getELFHeaderEFlags();
-
-  W.setELFHeaderEFlags(EFlags);
+  // Match the processor-specific e_flags used by the GCC-compatible TriCore
+  // objects in this toolchain while preserving any flags already installed.
+  constexpr unsigned TricoreEFlags = 0x00080000U;
+  W.setELFHeaderEFlags(W.getELFHeaderEFlags() | TricoreEFlags);
 }
 
 MCELFStreamer &TricoreTargetELFStreamer::getStreamer() {

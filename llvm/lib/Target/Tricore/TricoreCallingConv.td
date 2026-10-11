@@ -3,6 +3,7 @@ def CSR_EABI : CalleeSavedRegs<(add)> {
 }
 
 def RetCC_TricoreEABI : CallingConv<[
+  CCIfPtr<CCAssignToReg<[A2]>>,
   CCIfType<[i32], CCAssignToReg<[D2, D3]>>,
   CCIfType<[i64], CCAssignToRegWithShadow<[D2], [D3]>>,
   CCIfType<[f32], CCAssignToReg<[D2]>>,

@@ -258,7 +258,8 @@ void TricoreInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
         .addImm(0)
         .addReg(SrcReg, getKillRegState(isKill))
         .addMemOperand(MMO);
-  else if (RC == &Tricore::EGPRRegClass)
+  else if (RC == &Tricore::EGPRRegClass ||
+           RC == &Tricore::PGPRRegClass)
     BuildMI(MBB, I, DL, get(Tricore::STDbo))
         .addFrameIndex(FI)
         .addImm(0)
@@ -292,7 +293,8 @@ void TricoreInstrInfo::loadRegFromStackSlot(
         .addFrameIndex(FI)
         .addImm(0)
         .addMemOperand(MMO);
-  else if (RC == &Tricore::EGPRRegClass)
+  else if (RC == &Tricore::EGPRRegClass ||
+           RC == &Tricore::PGPRRegClass)
     BuildMI(MBB, MBBI, DL, get(Tricore::LDDbo), DstReg)
         .addFrameIndex(FI)
         .addImm(0)

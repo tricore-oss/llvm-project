@@ -32,8 +32,7 @@ bool llvm::CC_TricoreEABI(unsigned ValNo, MVT ValVT, MVT LocVT,
       State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
       return false;
     }
-  }
-  if (ValVT == MVT::i32 || ValVT == MVT::f32 ||
+  } else if (ValVT == MVT::i32 || ValVT == MVT::f32 ||
       (ArgFlags.isByVal() && ArgFlags.getByValSize() <= 4)) {
     if (MCRegister Reg = State.AllocateReg(DataArgList)) {
       for (auto SuperReg : RI->superregs(Reg)) {
@@ -42,8 +41,7 @@ bool llvm::CC_TricoreEABI(unsigned ValNo, MVT ValVT, MVT LocVT,
       State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
       return false;
     }
-  }
-  if (ValVT == MVT::i64) {
+  } else if (ValVT == MVT::i64) {
     if (MCRegister Reg = State.AllocateReg(ExtendedDataArgList)) {
       for (auto SubReg : RI->subregs(Reg)) {
         State.AllocateReg(SubReg);

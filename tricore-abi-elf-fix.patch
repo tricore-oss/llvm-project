@@ -1,0 +1,110 @@
+--- a/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
++++ b/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
+@@ -218,17 +218,37 @@
+   }
+ 
+   // Assign locations to all of the incoming arguments.
++  //
++  // TriCore EABI uses a separate address-register bank (A4-A7) for pointer
++  // arguments. SelectionDAG normally propagates pointer-ness in ArgFlagsTy,
++  // but reconstruct it from the original IR type here as well. This is
++  // important for frontends/codegen paths that present a pointer as i32 while
++  // losing the pointer flag: treating it as plain i32 would incorrectly select
++  // D4-D7.
++  SmallVector<ISD::InputArg, 16> ABIIns(Ins.begin(), Ins.end());
++  for (ISD::InputArg &In : ABIIns) {
++    if (In.OrigArgIndex == ISD::InputArg::NoArgIndex ||
++        In.OrigArgIndex >= Func.arg_size())
++      continue;
++
++    const Argument *Arg = Func.getArg(In.OrigArgIndex);
++    if (auto *PtrTy = dyn_cast<PointerType>(Arg->getType())) {
++      In.Flags.setPointer();
++      In.Flags.setPointerAddrSpace(PtrTy->getAddressSpace());
++    }
++  }
++
+   SmallVector<CCValAssign, 16> ArgLocs;
+   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+ 
+-  CCInfo.AnalyzeFormalArguments(Ins, CC_TricoreEABI);
++  CCInfo.AnalyzeFormalArguments(ABIIns, CC_TricoreEABI);
+   for (unsigned i = 0, e = ArgLocs.size(), InsIdx = 0; i != e; ++i, ++InsIdx) {
+     CCValAssign &VA = ArgLocs[i];
+     SDValue ArgValue;
+ 
+     if (VA.isRegLoc()) {
+       EVT LocVT = VA.getLocVT();
+-      const TargetRegisterClass *RC = Ins[i].Flags.isPointer()
++      const TargetRegisterClass *RC = ABIIns[i].Flags.isPointer()
+                                           ? TRI.getPointerRegClass(MF, 0)
+                                           : getRegClassFor(LocVT.getSimpleVT());
+       Register VReg = RegInfo.createVirtualRegister(RC);
+@@ -276,6 +296,22 @@
+   MachineFunction &MF = DAG.getMachineFunction();
+ 
+   // Analyze operands of the call, assigning locations to each operand.
++  // Reconstruct pointer flags from the IR call operands for the same reason as
++  // in LowerFormalArguments(): pointer arguments must use A4-A7, not D4-D7.
++  SmallVector<ISD::OutputArg, 16> ABIOuts(Outs.begin(), Outs.end());
++  if (CLI.CB) {
++    for (ISD::OutputArg &Out : ABIOuts) {
++      if (Out.OrigArgIndex >= CLI.CB->arg_size())
++        continue;
++
++      Type *ArgTy = CLI.CB->getArgOperand(Out.OrigArgIndex)->getType();
++      if (auto *PtrTy = dyn_cast<PointerType>(ArgTy)) {
++        Out.Flags.setPointer();
++        Out.Flags.setPointerAddrSpace(PtrTy->getAddressSpace());
++      }
++    }
++  }
++
+   SmallVector<CCValAssign, 16> ArgLocs;
+   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), ArgLocs,
+                  *DAG.getContext());
+@@ -284,7 +320,8 @@
+   if (IsVarArg) {
+     SmallVector<ISD::OutputArg, 16> ArgOuts;
+     ArgOuts.resize(CLI.NumFixedArgs);
+-    std::copy(Outs.begin(), Outs.begin() + CLI.NumFixedArgs, ArgOuts.begin());
++    std::copy(ABIOuts.begin(), ABIOuts.begin() + CLI.NumFixedArgs,
++              ArgOuts.begin());
+     CCInfo.AnalyzeCallOperands(ArgOuts, CC_TricoreEABI);
+ 
+     unsigned ValNo = CLI.NumFixedArgs;
+@@ -300,7 +337,7 @@
+                                         CCValAssign::Full));
+     }
+   } else {
+-    CCInfo.AnalyzeCallOperands(Outs, CC_TricoreEABI);
++    CCInfo.AnalyzeCallOperands(ABIOuts, CC_TricoreEABI);
+   }
+ 
+   // isTailCall = isTailCall && IsEligibleForTailCallOptimization(
+--- a/llvm/lib/Target/Tricore/TricoreCallingConv.td
++++ b/llvm/lib/Target/Tricore/TricoreCallingConv.td
+@@ -3,6 +3,8 @@
+ }
+ 
+ def RetCC_TricoreEABI : CallingConv<[
++  // TriCore EABI returns pointers in A2, while 32-bit arithmetic values use D2.
++  CCIfPtr<CCAssignToReg<[A2]>>,
+   CCIfType<[i32], CCAssignToReg<[D2, D3]>>,
+   CCIfType<[i64], CCAssignToRegWithShadow<[D2], [D3]>>,
+   CCIfType<[f32], CCAssignToReg<[D2]>>,
+--- a/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
++++ b/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
+@@ -45,7 +45,11 @@
+   ELFObjectWriter &W = getStreamer().getWriter();
+   unsigned EFlags = W.getELFHeaderEFlags();
+ 
+-  W.setELFHeaderEFlags(EFlags);
++  // Match the TriCore EABI ELF objects emitted by GCC/HighTec. Without this
++  // processor-specific flag GNU ld rejects LLVM-produced objects/libraries as
++  // having incompatible ELF flags (LLVM previously emitted e_flags == 0).
++  constexpr unsigned TricoreEABIFlag = 0x00080000U;
++  W.setELFHeaderEFlags(EFlags | TricoreEABIFlag);
+ }
+ MCELFStreamer &TricoreTargetELFStreamer::getStreamer() {
+   return static_cast<MCELFStreamer &>(Streamer);

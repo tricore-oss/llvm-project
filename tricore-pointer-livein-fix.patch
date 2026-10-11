@@ -1,0 +1,26 @@
+--- a/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
++++ b/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
+@@ -238,12 +238,17 @@
+     if (VA.isRegLoc()) {
+       EVT LocVT = VA.getLocVT();
+       if (ABIIns[i].Flags.isPointer()) {
+-        // The EABI passes pointers in A4-A7, while LLVM represents pointers as
+-        // i32 internally. Keep the ABI register explicit until instruction
+-        // selection so generic COPY coalescing cannot turn A4 into D4.
+-        SDValue AValue =
+-            DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), LocVT);
+-        Chain = AValue.getValue(1);
++        // EABI pointer arguments arrive in A4-A7. SelectionDAG represents
++        // their values as i32, whose default register class is DGPR. First
++        // materialize the ABI input in an AGPR virtual register, then perform
++        // the explicit address-to-data transfer with mov.d.
++        //
++        // Registering the physical argument as a live-in is essential: a
++        // direct CopyFromReg of A4/A5 without a live-in fails machine
++        // verification with "Using an undefined physical register".
++        Register AReg = RegInfo.createVirtualRegister(&Tricore::AGPRRegClass);
++        RegInfo.addLiveIn(VA.getLocReg(), AReg);
++        SDValue AValue = DAG.getCopyFromReg(Chain, DL, AReg, LocVT);
+         ArgValue = DAG.getNode(TricoreISD::MOV_D, DL, LocVT, AValue);
+       } else {
+         const TargetRegisterClass *RC = getRegClassFor(LocVT.getSimpleVT());

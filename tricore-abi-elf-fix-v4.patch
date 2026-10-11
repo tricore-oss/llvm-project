@@ -1,0 +1,227 @@
+diff --git a/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp b/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
+index c958a19..0ff438c 100644
+--- a/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
++++ b/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
+@@ -46,9 +46,10 @@ TricoreTargetELFStreamer::TricoreTargetELFStreamer(MCStreamer &S,
+                                                const MCSubtargetInfo &STI)
+     : TricoreTargetStreamer(S) {
+   ELFObjectWriter &W = getStreamer().getWriter();
+-  unsigned EFlags = W.getELFHeaderEFlags();
+-
+-  W.setELFHeaderEFlags(EFlags);
++  // Match the processor-specific e_flags emitted by the GNU/HighTec TriCore
++  // toolchain. Preserve flags that may already have been installed.
++  constexpr unsigned TricoreEFlags = 0x00080000U;
++  W.setELFHeaderEFlags(W.getELFHeaderEFlags() | TricoreEFlags);
+ }
+ 
+ MCELFStreamer &TricoreTargetELFStreamer::getStreamer() {
+diff --git a/llvm/lib/Target/Tricore/TricoreCallingConv.td b/llvm/lib/Target/Tricore/TricoreCallingConv.td
+index 59fac0a..37935c2 100644
+--- a/llvm/lib/Target/Tricore/TricoreCallingConv.td
++++ b/llvm/lib/Target/Tricore/TricoreCallingConv.td
+@@ -1,10 +1,11 @@
+-def CSR_EABI : CalleeSavedRegs<(add)> {
+-  let OtherPreserved = (add (sequence "D%u", 8, 15), (sequence "A%u", 10, 15));
+-}
+-
+-def RetCC_TricoreEABI : CallingConv<[
+-  CCIfType<[i32], CCAssignToReg<[D2, D3]>>,
+-  CCIfType<[i64], CCAssignToRegWithShadow<[D2], [D3]>>,
+-  CCIfType<[f32], CCAssignToReg<[D2]>>,
+-  CCIfType<[f64], CCAssignToReg<[E2]>>
++def CSR_EABI : CalleeSavedRegs<(add)> {
++  let OtherPreserved = (add (sequence "D%u", 8, 15), (sequence "A%u", 10, 15));
++}
++
++def RetCC_TricoreEABI : CallingConv<[
++  CCIf<"ArgFlags.isPointer()", CCAssignToReg<[A2]>>,
++  CCIfType<[i32], CCAssignToReg<[D2, D3]>>,
++  CCIfType<[i64], CCAssignToRegWithShadow<[D2], [D3]>>,
++  CCIfType<[f32], CCAssignToReg<[D2]>>,
++  CCIfType<[f64], CCAssignToReg<[E2]>>
+ ]>;
+\ No newline at end of file
+diff --git a/llvm/lib/Target/Tricore/TricoreISelLowering.cpp b/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
+index 2b1df2d..40f1b25 100644
+--- a/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
++++ b/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
+@@ -217,23 +217,49 @@ SDValue TricoreTargetLowering::LowerFormalArguments(
+           "Functions with the interrupt attribute cannot have arguments!");
+   }
+ 
++  // SelectionDAG lowers 32-bit pointers to i32. Reconstruct pointer-ness from
++  // the original IR arguments so CC_TricoreEABI can use A4-A7 for pointers.
++  SmallVector<ISD::InputArg, 16> ABIIns(Ins.begin(), Ins.end());
++  for (ISD::InputArg &In : ABIIns) {
++    if (In.OrigArgIndex < Func.arg_size() &&
++        Func.getArg(In.OrigArgIndex)->getType()->isPointerTy())
++      In.Flags.setPointer();
++  }
++
+   // Assign locations to all of the incoming arguments.
+   SmallVector<CCValAssign, 16> ArgLocs;
+   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+ 
+-  CCInfo.AnalyzeFormalArguments(Ins, CC_TricoreEABI);
++  CCInfo.AnalyzeFormalArguments(ABIIns, CC_TricoreEABI);
+   for (unsigned i = 0, e = ArgLocs.size(), InsIdx = 0; i != e; ++i, ++InsIdx) {
+     CCValAssign &VA = ArgLocs[i];
+     SDValue ArgValue;
+ 
+     if (VA.isRegLoc()) {
+       EVT LocVT = VA.getLocVT();
+-      const TargetRegisterClass *RC = Ins[i].Flags.isPointer()
+-                                          ? TRI.getPointerRegClass(MF, 0)
+-                                          : getRegClassFor(LocVT.getSimpleVT());
+-      Register VReg = RegInfo.createVirtualRegister(RC);
+-      RegInfo.addLiveIn(VA.getLocReg(), VReg);
+-      ArgValue = DAG.getCopyFromReg(Chain, DL, VReg, LocVT);
++      if (ABIIns[i].Flags.isPointer()) {
++        // The EABI carries pointers in A4-A7, but SelectionDAG represents
++        // pointers as i32 and the backend's normal i32 register class is DGPR.
++        // Keep the AGPR value confined to the ABI boundary and immediately
++        // copy it to a DGPR. TricoreInstrInfo::copyPhysReg lowers this
++        // cross-class COPY to MOVDrr (mov.d).
++        Register AVReg =
++            RegInfo.createVirtualRegister(TRI.getPointerRegClass(MF, 0));
++        RegInfo.addLiveIn(VA.getLocReg(), AVReg);
++        SDValue AValue = DAG.getCopyFromReg(Chain, DL, AVReg, LocVT);
++
++        Register DVReg =
++            RegInfo.createVirtualRegister(getRegClassFor(LocVT.getSimpleVT()));
++        SDValue Copy = DAG.getCopyToReg(Chain, DL, DVReg, AValue);
++        Chain = Copy;
++        ArgValue = DAG.getCopyFromReg(Chain, DL, DVReg, LocVT);
++      } else {
++        const TargetRegisterClass *RC =
++            getRegClassFor(LocVT.getSimpleVT());
++        Register VReg = RegInfo.createVirtualRegister(RC);
++        RegInfo.addLiveIn(VA.getLocReg(), VReg);
++        ArgValue = DAG.getCopyFromReg(Chain, DL, VReg, LocVT);
++      }
+     } else if (VA.isMemLoc()) {
+       int FI =
+           MF.getFrameInfo().CreateFixedObject(4, VA.getLocMemOffset(), true);
+@@ -275,6 +301,18 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
+   bool IsVarArg = CLI.IsVarArg;
+   MachineFunction &MF = DAG.getMachineFunction();
+ 
++  // Reconstruct pointer-ness from the original IR call operands. Otherwise
++  // pointer arguments are indistinguishable from i32 here and are assigned to
++  // D4-D7 instead of the EABI pointer registers A4-A7.
++  SmallVector<ISD::OutputArg, 16> ABIOuts(Outs.begin(), Outs.end());
++  if (CLI.CB) {
++    for (ISD::OutputArg &Out : ABIOuts) {
++      if (Out.OrigArgIndex < CLI.CB->arg_size() &&
++          CLI.CB->getArgOperand(Out.OrigArgIndex)->getType()->isPointerTy())
++        Out.Flags.setPointer();
++    }
++  }
++
+   // Analyze operands of the call, assigning locations to each operand.
+   SmallVector<CCValAssign, 16> ArgLocs;
+   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), ArgLocs,
+@@ -284,7 +322,8 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
+   if (IsVarArg) {
+     SmallVector<ISD::OutputArg, 16> ArgOuts;
+     ArgOuts.resize(CLI.NumFixedArgs);
+-    std::copy(Outs.begin(), Outs.begin() + CLI.NumFixedArgs, ArgOuts.begin());
++    std::copy(ABIOuts.begin(), ABIOuts.begin() + CLI.NumFixedArgs,
++              ArgOuts.begin());
+     CCInfo.AnalyzeCallOperands(ArgOuts, CC_TricoreEABI);
+ 
+     unsigned ValNo = CLI.NumFixedArgs;
+@@ -300,7 +339,7 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
+                                         CCValAssign::Full));
+     }
+   } else {
+-    CCInfo.AnalyzeCallOperands(Outs, CC_TricoreEABI);
++    CCInfo.AnalyzeCallOperands(ABIOuts, CC_TricoreEABI);
+   }
+ 
+   // isTailCall = isTailCall && IsEligibleForTailCallOptimization(
+@@ -457,21 +496,44 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
+   Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, Glue, DL);
+   Glue = Chain.getValue(1);
+ 
+-  // Assign locations to each value returned by this call.
++  // Assign locations to each value returned by this call. Pointer results use
++  // A2 rather than the integer return register D2.
++  SmallVector<ISD::InputArg, 4> ABIIns(Ins.begin(), Ins.end());
++  if (CLI.CB && CLI.CB->getType()->isPointerTy()) {
++    for (ISD::InputArg &In : ABIIns)
++      In.Flags.setPointer();
++  }
+   SmallVector<CCValAssign, 16> RVLocs;
+   CCState RetCCInfo(CallConv, IsVarArg, MF, RVLocs, *DAG.getContext());
+-  RetCCInfo.AnalyzeCallResult(Ins, RetCC_TricoreEABI);
++  RetCCInfo.AnalyzeCallResult(ABIIns, RetCC_TricoreEABI);
+ 
+   // Copy all of the result registers out of their specified physreg.
+   for (unsigned i = 0, e = RVLocs.size(); i != e; ++i) {
+     auto &VA = RVLocs[i];
+-    // Copy the value out
+-    SDValue RetValue =
+-        DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), Glue);
+-    // Glue the RetValue to the end of the call sequence
++    SDValue RetValue;
++
++    if (ABIIns[i].Flags.isPointer()) {
++      // Pointer results arrive in A2. Convert them back to the backend's
++      // ordinary i32/DGPR representation immediately. The cross-class COPY
++      // becomes MOVDrr (mov.d).
++      SDValue AValue =
++          DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), Glue);
++      Chain = AValue.getValue(1);
++      Glue = AValue.getValue(2);
++
++      Register DVReg = MF.getRegInfo().createVirtualRegister(
++          getRegClassFor(VA.getLocVT().getSimpleVT()));
++      SDValue Copy = DAG.getCopyToReg(Chain, DL, DVReg, AValue, Glue);
++      Chain = Copy;
++      Glue = Copy.getValue(1);
++      RetValue = DAG.getCopyFromReg(Chain, DL, DVReg, VA.getLocVT(), Glue);
++    } else {
++      RetValue =
++          DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), Glue);
++    }
++
+     Chain = RetValue.getValue(1);
+     Glue = RetValue.getValue(2);
+-
+     InVals.push_back(RetValue);
+   }
+ 
+@@ -482,9 +544,14 @@ bool TricoreTargetLowering::CanLowerReturn(
+     CallingConv::ID CallConv, MachineFunction &MF, bool isVarArg,
+     const SmallVectorImpl<ISD::OutputArg> &Outs, LLVMContext &Context,
+     const Type *RetTy) const {
++  SmallVector<ISD::OutputArg, 4> ABIOuts(Outs.begin(), Outs.end());
++  if (RetTy && RetTy->isPointerTy()) {
++    for (ISD::OutputArg &Out : ABIOuts)
++      Out.Flags.setPointer();
++  }
+   SmallVector<CCValAssign, 16> RVLocs;
+   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, Context);
+-  return CCInfo.CheckReturn(Outs, RetCC_TricoreEABI);
++  return CCInfo.CheckReturn(ABIOuts, RetCC_TricoreEABI);
+ }
+ 
+ SDValue
+@@ -504,8 +571,14 @@ TricoreTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
+   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
+                  *DAG.getContext());
+ 
++  SmallVector<ISD::OutputArg, 4> ABIOuts(Outs.begin(), Outs.end());
++  if (MF.getFunction().getReturnType()->isPointerTy()) {
++    for (ISD::OutputArg &Out : ABIOuts)
++      Out.Flags.setPointer();
++  }
++
+   // Analyze return values.
+-  CCInfo.AnalyzeReturn(Outs, RetCC_TricoreEABI);
++  CCInfo.AnalyzeReturn(ABIOuts, RetCC_TricoreEABI);
+ 
+   SDValue Glue;
+   SmallVector<SDValue, 4> RetOps(1, Chain);

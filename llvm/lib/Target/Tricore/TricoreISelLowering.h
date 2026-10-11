@@ -30,6 +30,8 @@ enum NodeType : unsigned {
   RET_GLUE, // Return with a glue operand.
   LEA,
   MOVHA,
+  MOV_D, // Move an address-register value to a data-register value.
+  MOV_A, // Move a data-register value to an address-register value.
   EXTR,
   EXTRU,
   INSERT,

@@ -152,18 +152,14 @@ def : CompressPat<(MOVAArr AGPR:$a, AGPR:$b), (MOVAAsrr AGPR:$a, AGPR:$b)>;
 def : CompressPat<(MOVDrr DGPR:$a, AGPR:$b), (MOVDsrr DGPR:$a, AGPR:$b)>;
 
 // Branch Instructions
-multiclass CCall<bits<8> op1, bits<4> op2> {
+multiclass CCall<bits<8> op1> {
   let isCall = 1, isBarrier = 1, mayStore = 1, mayLoad = 0,
       hasSideEffects = 1 in {
     def sb : TCInstSB<op1, (outs), (ins br_disp8:$disp8), !tolower(NAME),
                       "$disp8">;
-    def Isr
-        : TCInstSR<0xDC, op2, (outs), (ins AGPR:$a), !tolower(NAME#I), "$a">;
   }
   def : CompressPat<(!cast<Instruction>(NAME) br_disp8:$disp8),
                     (!cast<Instruction>(NAME#sb) br_disp8:$disp8)>;
-  def : CompressPat<(!cast<Instruction>(NAME#I) AGPR:$a),
-                    (!cast<Instruction>(NAME#Isr) AGPR:$a)>;
 }
 multiclass CBranch<bits<8> op1, bits<4> op2> {
   let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
@@ -224,7 +220,8 @@ multiclass CBranchCompare<bits<8> op1, string inststr, int imm = 0> {
                     (!cast<Instruction>(NAME#sbr) DGPR:$b, br_disp4:$disp4)>;
 }
 
-defm CALL : CCall<0x5C, 0x1>;
+// CALL has a 16-bit direct form; CALLI is always a 32-bit instruction.
+defm CALL : CCall<0x5C>;
 defm J : CBranch<0x3C, 0x0>;
 defm JZ : CBranchCompareZero<0x6E, "JEQ">;
 defm JNZ : CBranchCompareZero<0xEE, "JNE">;

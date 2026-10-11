@@ -250,6 +250,9 @@ def tricore_ret_glue
              SDTNone, [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 def tricore_lea : SDNode<"TricoreISD::LEA", SDTIntBinOp>;
 def tricore_movha : SDNode<"TricoreISD::MOVHA", SDTIntUnaryOp>;
+// Explicit transfers between address and data register files.
+def tricore_mov_d : SDNode<"TricoreISD::MOV_D", SDTIntUnaryOp>;
+def tricore_mov_a : SDNode<"TricoreISD::MOV_A", SDTIntUnaryOp>;
 
 def tricore_extr : SDNode<"TricoreISD::EXTR", SDT_EXTR>;
 def tricore_extru : SDNode<"TricoreISD::EXTRU", SDT_EXTR>;
@@ -427,19 +430,20 @@ let isMoveImm = 1, a = 0 in {
                   "mov", "$c, $const16">;
 }
 
-let isMoveReg = 1, a = 0 in {
-  def MOVrr : TCInstRR<0x1F, 0x0B, (outs DGPR:$c), (ins DGPR:$b), [], "mov",
-                       "$c, $b">;
-  def MOVEDrr : TCInstRR<0x0B, 0x80, (outs EGPR:$c), (ins DGPR:$b), [], "mov",
-                         "$c, $b">;
-  def MOVDrr : TCInstRR<0x01, 0x4C, (outs DGPR:$c), (ins AGPR:$b), [], "mov.d",
-                        "$c, $b">;
-}
 
-let isMoveReg = 1 in {
+  def MOVrr : TCInstRR<0x1F, 0x0B, (outs DGPR:$c), (ins DGPR:$b), [], "mov",
+                       "$c, $b"> { let a = 0; }
+  def MOVEDrr : TCInstRR<0x0B, 0x80, (outs EGPR:$c), (ins DGPR:$b), [], "mov",
+                         "$c, $b"> { let a = 0; }
+  def MOVDrr : TCInstRR<0x01, 0x4C, (outs DGPR:$c), (ins AGPR:$b), [], "mov.d",
+                        "$c, $b"> { let a = 0; }
+  def : Pat<(tricore_mov_d AGPR:$b), (MOVDrr AGPR:$b)>;
+
+
+
   def MOVEDDrr : TCInstRR<0x0B, 0x81, (outs EGPR:$c),
                           (ins DGPR:$a, DGPR:$b), [], "mov", "$c, $a, $b">;
-}
+
 
 def : Pat<(i64(sext(i32 DGPR:$b))), (MOVEDrr DGPR:$b)>;
 
@@ -456,10 +460,10 @@ class I32InstRRUnary<bits<8> Op1, bits<8> Op2, SDPatternOperator Op,
 }
 
 multiclass arithmetic<int Op1, int Op2, SDNode Op, string opcodestr,
-                      ValueType Ty = i32> {
+                      ValueType Ty = i32, Operand Imm = simm9> {
   def rc : TCInstRC<!add(Op1, 0x80), Op2, (outs DGPR:$c),
-                    (ins DGPR:$a, simm9:$const9),
-                    [(set DGPR:$c, (Op(Ty DGPR:$a), simm9:$const9))], opcodestr,
+                    (ins DGPR:$a, Imm:$const9),
+                    [(set DGPR:$c, (Op(Ty DGPR:$a), Imm:$const9))], opcodestr,
                     "$c, $a, "
                     "$const9">;
   def rr : TCInstRR<Op1, Op2, (outs DGPR:$c), (ins DGPR:$a, DGPR:$b),
@@ -471,23 +475,21 @@ multiclass arithmetic<int Op1, int Op2, SDNode Op, string opcodestr,
 multiclass arithmetic_notin<int Op1, int Op2, SDNode Op, string opcodestr,
                             ValueType Ty = i32> {
   def rc : TCInstRC<!add(Op1, 0x80), Op2, (outs DGPR:$c),
-                    (ins DGPR:$a, simm9:$const9), [], opcodestr,
+                    (ins DGPR:$a, uimm9:$const9), [], opcodestr,
                     "$c, $a, "
                     "$const9">;
   def rr : TCInstRR<Op1, Op2, (outs DGPR:$c), (ins DGPR:$a, DGPR:$b),
-                    [(set Ty:$c, (Op Ty:$a, (ineg Ty:$b)))], opcodestr,
+                    [(set Ty:$c, (Op Ty:$a, (not Ty:$b)))], opcodestr,
                     "$c, $a, "
                     "$b">;
-  def : Pat<(Op DGPR:$a, (ineg simm9:$const9)),
-            (!cast<Instruction>(NAME#rc)(Ty DGPR:$a), (negate simm9:$const9))>;
 }
 
 multiclass arithmetic_notout<int Op1, int Op2, SDNode Op, string opcodestr,
                              ValueType Ty = i32> {
   def rc
       : TCInstRC<
-            !add(Op1, 0x80), Op2, (outs DGPR:$c), (ins DGPR:$a, simm9:$const9),
-            [(set DGPR:$c, (not(Op(Ty DGPR:$a), simm9:$const9)))], opcodestr,
+            !add(Op1, 0x80), Op2, (outs DGPR:$c), (ins DGPR:$a, uimm9:$const9),
+            [(set DGPR:$c, (not(Op(Ty DGPR:$a), uimm9:$const9)))], opcodestr,
             "$c, $a, "
             "$const9">;
   def rr : TCInstRR<Op1, Op2, (outs DGPR:$c), (ins DGPR:$a, DGPR:$b),
@@ -543,11 +545,11 @@ defm LE_U : cond_inferred<SETULE, LT_Urc, GE_Urr, "le.u">;
 defm SH : arithmetic<0x0F, 0x0, shl, "sh">;
 defm SHA : arithmetic<0xF, 0x1, shl, "sha">;
 // shas 0x2
-defm AND : arithmetic<0x0F, 0x8, and, "and">;
+defm AND : arithmetic<0x0F, 0x8, and, "and", i32, uimm9>;
 defm NAND : arithmetic_notout<0x0F, 0x9, and, "nand">;
-defm OR : arithmetic<0x0F, 0xA, or, "or">;
+defm OR : arithmetic<0x0F, 0xA, or, "or", i32, uimm9>;
 defm NOR : arithmetic_notout<0x0F, 0xB, or, "nor">;
-defm XOR : arithmetic<0x0F, 0xC, xor, "xor">;
+defm XOR : arithmetic<0x0F, 0xC, xor, "xor", i32, uimm9>;
 defm XNOR : arithmetic_notout<0x0F, 0xD, xor, "xnor">;
 defm ANDN : arithmetic_notin<0x0F, 0xE, and, "andn">;
 defm ORN : arithmetic_notin<0x0F, 0xF, or, "orn">;
@@ -619,9 +621,10 @@ def MULErr : TCInstRR2<0x73, 0x6A, (outs EGPR:$c), (ins DGPR:$a, DGPR:$b), [],
                        "mul", "$c, $a, $b">;
 def MULUrr : TCInstRR2<0x73, 0x68, (outs EGPR:$c), (ins DGPR:$a, DGPR:$b), [],
                        "mul.u", "$c, $a, $b">;
-def DIV : TCInstRR<0x4B, 0x20, (outs EGPR:$c), (ins DGPR:$a, DGPR:$b), [],
+// The integer divide forms require 1 in bits 17:16 as well as op2.
+def DIV : TCInstRR2<0x4B, 0x201, (outs EGPR:$c), (ins DGPR:$a, DGPR:$b), [],
                    "div", "$c, $a, $b">;
-def DIVU : TCInstRR<0x4B, 0x21, (outs EGPR:$c), (ins DGPR:$a, DGPR:$b), [],
+def DIVU : TCInstRR2<0x4B, 0x211, (outs EGPR:$c), (ins DGPR:$a, DGPR:$b), [],
                     "div.u", "$c, $a, $b">;
 
 def : Pat<(i32(mul DGPR:$a, simm9:$const9)), (MULrc DGPR:$a, simm9:$const9)>;
@@ -678,7 +681,7 @@ defm JZ_T : cond_branch_z<0x0, SETEQ>;
 defm JNZ_T : cond_branch_z<0x1, SETNE>;
 
 def : Pat<(brcond(assertzext(i32 DGPR:$a)), bb:$disp15),
-          (JZ_T DGPR:$a, 0, br_disp15:$disp15)>;
+          (JNZ_T DGPR:$a, 0, br_disp15:$disp15)>;
 def : Pat<(brcond(i32 DGPR:$a), bb:$disp15), (JNEbrc DGPR:$a, 0,
                                                  br_disp15:$disp15)>;
 
@@ -742,9 +745,6 @@ multiclass selectcc_inst<int op1, int op2, CondCode cond, CondCode condu> {
   def : Pat<(selectcc(i32 DGPR:$a), (i32 DGPR:$b), DGPR:$a, DGPR:$b, condu),
             (!cast<Instruction>(NAME#_Urr) DGPR:$a, DGPR:$b)>;
 
-  def : Pat<(vselect(setcc(v4i8 DGPR:$a), DGPR:$b, cond), (v4i8 DGPR:$a),
-                DGPR:$b),
-            (!cast<Instruction>(NAME#_Brr) DGPR:$a, DGPR:$b)>;
 }
 
 multiclass select_inst<int op2, CondCode cond> {
@@ -1012,16 +1012,16 @@ def MTCR : TCInstRLC<0xCD, (outs), (ins tuimm16:$const16, DGPR:$a),
 //===
 // Address Instructions
 //
-let isMoveReg = 1, a = 0 in {
-  def MOVArr : TCInstRR<0x01, 0x63, (outs AGPR:$c), (ins DGPR:$b), [], "mov.a",
-                        "$c, $b">;
+def MOVArr : TCInstRR<0x01, 0x63, (outs AGPR:$c), (ins DGPR:$b), [], "mov.a",
+                        "$c, $b"> { let a = 0; }
+  def : Pat<(tricore_mov_a DGPR:$b), (MOVArr DGPR:$b)>;
   def MOVAArr : TCInstRR<0x01, 0x00, (outs AGPR:$c), (ins AGPR:$b), [],
-                         "mov.aa", "$c, $b">;
+                         "mov.aa", "$c, $b"> { let a = 0; }
   def MOVHArlc : TCInstRLC<0x91, (outs AGPR:$c), (ins uimm16:$const16), [],
-                           "movh.a", "$c, $const16">;
-}
+                           "movh.a", "$c, $const16"> { let a = 0; }
 
-def LEAbo : TCInstBO<0x49, 0x28, IndexModePost, (outs AGPR:$a),
+// The six-bit LEA opcode 0x28 includes the base-offset mode bits.
+def LEAbo : TCInstBO<0x49, 0x8, IndexModeNone, (outs AGPR:$a),
                      (ins AGPR:$b, simm10:$off10), [], "lea", "$a, $b, $off10">;
 def LEAbol : TCInstBOL<0xD9, (outs AGPR:$a), (ins AGPR:$b, simm16:$off16), [],
                        "lea", "$a, $b, $off16">;

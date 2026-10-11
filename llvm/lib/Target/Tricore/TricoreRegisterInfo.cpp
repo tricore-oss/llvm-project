@@ -126,12 +126,7 @@ TricoreRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
 
 const TargetRegisterClass *TricoreRegisterInfo::getLargestLegalSuperClass(
     const TargetRegisterClass *RC, const MachineFunction &MF) const {
-  switch (RC->getID()) {
-  case Tricore::DGPRRegClassID:
-    return &Tricore::EGPRRegClass;
-  case Tricore::AGPRRegClassID:
-    return &Tricore::PGPRRegClass;
-  default:
-    return RC;
-  }
+  // Register pairs are not superclasses of their 32-bit component registers.
+  // Widening to them changes the spill width and the physical register identity.
+  return RC;
 }

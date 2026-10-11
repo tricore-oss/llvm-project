@@ -38,11 +38,6 @@ class TricoreSubtarget : public TricoreGenSubtargetInfo {
   Triple TargetTriple;
   virtual void anchor();
 
-  TricoreInstrInfo InstrInfo;
-  TricoreTargetLowering TLInfo;
-  SelectionDAGTargetInfo TSInfo;
-  TricoreFrameLowering FrameLowering;
-
   enum FPType { FP_Soft, FP_Single, FP_Double };
   enum TricoreArchType { TC13, TC131, TC16, TC162, TC18 };
   
@@ -52,6 +47,13 @@ class TricoreSubtarget : public TricoreGenSubtargetInfo {
 #define GET_SUBTARGETINFO_MACRO(ATTRIBUTE, DEFAULT, GETTER)                    \
   bool ATTRIBUTE = DEFAULT;
 #include "TricoreGenSubtargetInfo.inc"
+
+  // Feature state must be initialized before InstrInfo parses it and TLInfo
+  // uses it to construct the type and operation legalization tables.
+  TricoreInstrInfo InstrInfo;
+  TricoreTargetLowering TLInfo;
+  SelectionDAGTargetInfo TSInfo;
+  TricoreFrameLowering FrameLowering;
 
 public:
   TricoreSubtarget(const StringRef &CPU, const StringRef &TuneCPU,

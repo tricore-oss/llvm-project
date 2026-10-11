@@ -1,0 +1,133 @@
+diff --git a/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp b/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
+index c958a19..2d5061b 100644
+--- a/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
++++ b/llvm/lib/Target/Tricore/MCTargetDesc/TricoreTargetStreamer.cpp
+@@ -46,9 +46,10 @@ TricoreTargetELFStreamer::TricoreTargetELFStreamer(MCStreamer &S,
+                                                const MCSubtargetInfo &STI)
+     : TricoreTargetStreamer(S) {
+   ELFObjectWriter &W = getStreamer().getWriter();
+-  unsigned EFlags = W.getELFHeaderEFlags();
+-
+-  W.setELFHeaderEFlags(EFlags);
++  // Match the processor-specific e_flags used by the GCC-compatible TriCore
++  // objects in this toolchain while preserving any flags already installed.
++  constexpr unsigned TricoreEFlags = 0x00080000U;
++  W.setELFHeaderEFlags(W.getELFHeaderEFlags() | TricoreEFlags);
+ }
+ 
+ MCELFStreamer &TricoreTargetELFStreamer::getStreamer() {
+diff --git a/llvm/lib/Target/Tricore/TricoreISelLowering.cpp b/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
+index 2b1df2d..0206804 100644
+--- a/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
++++ b/llvm/lib/Target/Tricore/TricoreISelLowering.cpp
+@@ -199,9 +199,6 @@ SDValue TricoreTargetLowering::LowerFormalArguments(
+ 
+   MachineFunction &MF = DAG.getMachineFunction();
+   MachineRegisterInfo &RegInfo = MF.getRegInfo();
+-  const TricoreRegisterInfo &TRI = *static_cast<const TricoreRegisterInfo *>(
+-      RegInfo.getTargetRegisterInfo());
+-
+   switch (CallConv) {
+   default:
+     report_fatal_error("Unsupported calling convention");
+@@ -217,20 +214,32 @@ SDValue TricoreTargetLowering::LowerFormalArguments(
+           "Functions with the interrupt attribute cannot have arguments!");
+   }
+ 
++  // SelectionDAG lowers 32-bit pointers to i32 and loses pointer-ness in the
++  // argument flags. Reconstruct it from the original IR so CC_TricoreEABI can
++  // select the EABI address-register argument bank (A4-A7).
++  SmallVector<ISD::InputArg, 16> ABIIns(Ins.begin(), Ins.end());
++  for (ISD::InputArg &In : ABIIns) {
++    if (In.OrigArgIndex < Func.arg_size() &&
++        Func.getArg(In.OrigArgIndex)->getType()->isPointerTy())
++      In.Flags.setPointer();
++  }
++
+   // Assign locations to all of the incoming arguments.
+   SmallVector<CCValAssign, 16> ArgLocs;
+   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+ 
+-  CCInfo.AnalyzeFormalArguments(Ins, CC_TricoreEABI);
+-  for (unsigned i = 0, e = ArgLocs.size(), InsIdx = 0; i != e; ++i, ++InsIdx) {
++  CCInfo.AnalyzeFormalArguments(ABIIns, CC_TricoreEABI);
++  for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
+     CCValAssign &VA = ArgLocs[i];
+     SDValue ArgValue;
+ 
+     if (VA.isRegLoc()) {
+       EVT LocVT = VA.getLocVT();
+-      const TargetRegisterClass *RC = Ins[i].Flags.isPointer()
+-                                          ? TRI.getPointerRegClass(MF, 0)
+-                                          : getRegClassFor(LocVT.getSimpleVT());
++      // Keep LLVM's internal pointer representation in DGPRs. If the physical
++      // EABI location is A4-A7, addLiveIn creates a cross-class COPY from the
++      // address register to this DGPR virtual register. copyPhysReg lowers that
++      // COPY to MOVDrr (mov.d). This avoids illegal i32/AGPR virtual registers.
++      const TargetRegisterClass *RC = getRegClassFor(LocVT.getSimpleVT());
+       Register VReg = RegInfo.createVirtualRegister(RC);
+       RegInfo.addLiveIn(VA.getLocReg(), VReg);
+       ArgValue = DAG.getCopyFromReg(Chain, DL, VReg, LocVT);
+@@ -275,6 +284,19 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
+   bool IsVarArg = CLI.IsVarArg;
+   MachineFunction &MF = DAG.getMachineFunction();
+ 
++  // Reconstruct pointer-ness from the original IR call operands. Pointer
++  // arguments must use A4-A7, while their SelectionDAG values remain ordinary
++  // i32/DGPR values. CopyToReg to a physical A-register is lowered by
++  // copyPhysReg to MOVArr (mov.a).
++  SmallVector<ISD::OutputArg, 16> ABIOuts(Outs.begin(), Outs.end());
++  if (CLI.CB) {
++    for (ISD::OutputArg &Out : ABIOuts) {
++      if (Out.OrigArgIndex < CLI.CB->arg_size() &&
++          CLI.CB->getArgOperand(Out.OrigArgIndex)->getType()->isPointerTy())
++        Out.Flags.setPointer();
++    }
++  }
++
+   // Analyze operands of the call, assigning locations to each operand.
+   SmallVector<CCValAssign, 16> ArgLocs;
+   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), ArgLocs,
+@@ -284,7 +306,8 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
+   if (IsVarArg) {
+     SmallVector<ISD::OutputArg, 16> ArgOuts;
+     ArgOuts.resize(CLI.NumFixedArgs);
+-    std::copy(Outs.begin(), Outs.begin() + CLI.NumFixedArgs, ArgOuts.begin());
++    std::copy(ABIOuts.begin(), ABIOuts.begin() + CLI.NumFixedArgs,
++              ArgOuts.begin());
+     CCInfo.AnalyzeCallOperands(ArgOuts, CC_TricoreEABI);
+ 
+     unsigned ValNo = CLI.NumFixedArgs;
+@@ -300,7 +323,7 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
+                                         CCValAssign::Full));
+     }
+   } else {
+-    CCInfo.AnalyzeCallOperands(Outs, CC_TricoreEABI);
++    CCInfo.AnalyzeCallOperands(ABIOuts, CC_TricoreEABI);
+   }
+ 
+   // isTailCall = isTailCall && IsEligibleForTailCallOptimization(
+diff --git a/llvm/lib/Target/Tricore/TricoreInstrInfo.cpp b/llvm/lib/Target/Tricore/TricoreInstrInfo.cpp
+index c1913a5..249c040 100644
+--- a/llvm/lib/Target/Tricore/TricoreInstrInfo.cpp
++++ b/llvm/lib/Target/Tricore/TricoreInstrInfo.cpp
+@@ -26,7 +26,8 @@ void TricoreInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
+         .addImm(0)
+         .addReg(SrcReg, getKillRegState(isKill))
+         .addMemOperand(MMO);
+-  else if (RC == &Tricore::EGPRRegClass)
++  else if (RC == &Tricore::EGPRRegClass ||
++           RC == &Tricore::PGPRRegClass)
+     BuildMI(MBB, I, DL, get(Tricore::STDbo))
+         .addFrameIndex(FI)
+         .addImm(0)
+@@ -57,7 +58,8 @@ void TricoreInstrInfo::loadRegFromStackSlot(
+         .addFrameIndex(FI)
+         .addImm(0)
+         .addMemOperand(MMO);
+-  else if (RC == &Tricore::EGPRRegClass)
++  else if (RC == &Tricore::EGPRRegClass ||
++           RC == &Tricore::PGPRRegClass)
+     BuildMI(MBB, MBBI, DL, get(Tricore::LDDbo), DstReg)
+         .addFrameIndex(FI)
+         .addImm(0)

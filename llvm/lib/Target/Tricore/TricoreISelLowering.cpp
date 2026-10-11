@@ -143,6 +143,14 @@ TricoreTargetLowering::TricoreTargetLowering(const TargetMachine &TM,
   }
 
   // Float
+  // Half precision conversions have no native instructions, even with an FPU.
+  setOperationAction({ISD::FP16_TO_FP, ISD::STRICT_FP16_TO_FP,
+                      ISD::FP_TO_FP16, ISD::STRICT_FP_TO_FP16},
+                     {MVT::f32, MVT::f64}, Expand);
+  for (MVT VT : {MVT::f32, MVT::f64}) {
+    setTruncStoreAction(VT, MVT::f16, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f16, Expand);
+  }
   setOperationAction(ISD::LOAD, MVT::f64, Legal);
   setOperationAction(ISD::STORE, MVT::f64, Legal);
   if (Subtarget.hasSingleFloat()) {
@@ -178,6 +186,8 @@ const char *TricoreTargetLowering::getTargetNodeName(unsigned Opcode) const {
     break;
     NODE_NAME_CASE(CALL)
     NODE_NAME_CASE(TAIL)
+    NODE_NAME_CASE(MOV_D)
+    NODE_NAME_CASE(MOV_A)
     default:
     break;
   }
@@ -199,9 +209,6 @@ SDValue TricoreTargetLowering::LowerFormalArguments(
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
-  const TricoreRegisterInfo &TRI = *static_cast<const TricoreRegisterInfo *>(
-      RegInfo.getTargetRegisterInfo());
-
   switch (CallConv) {
   default:
     report_fatal_error("Unsupported calling convention");
@@ -217,32 +224,59 @@ SDValue TricoreTargetLowering::LowerFormalArguments(
           "Functions with the interrupt attribute cannot have arguments!");
   }
 
+  // SelectionDAG lowers 32-bit pointers to i32 and loses pointer-ness in the
+  // argument flags. Reconstruct it from the original IR so CC_TricoreEABI can
+  // select the EABI address-register argument bank (A4-A7).
+  SmallVector<ISD::InputArg, 16> ABIIns(Ins.begin(), Ins.end());
+  for (ISD::InputArg &In : ABIIns) {
+    if (!In.Flags.isByVal() && In.VT == MVT::i32 &&
+        In.OrigArgIndex < Func.arg_size() &&
+        Func.getArg(In.OrigArgIndex)->getType()->isPointerTy())
+      In.Flags.setPointer();
+  }
+
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
 
-  CCInfo.AnalyzeFormalArguments(Ins, CC_TricoreEABI);
-  for (unsigned i = 0, e = ArgLocs.size(), InsIdx = 0; i != e; ++i, ++InsIdx) {
+  CCInfo.AnalyzeFormalArguments(ABIIns, CC_TricoreEABI);
+  for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     CCValAssign &VA = ArgLocs[i];
     SDValue ArgValue;
 
     if (VA.isRegLoc()) {
       EVT LocVT = VA.getLocVT();
-      const TargetRegisterClass *RC = Ins[i].Flags.isPointer()
-                                          ? TRI.getPointerRegClass(MF, 0)
-                                          : getRegClassFor(LocVT.getSimpleVT());
-      Register VReg = RegInfo.createVirtualRegister(RC);
-      RegInfo.addLiveIn(VA.getLocReg(), VReg);
-      ArgValue = DAG.getCopyFromReg(Chain, DL, VReg, LocVT);
-    } else if (VA.isMemLoc()) {
-      int FI =
-          MF.getFrameInfo().CreateFixedObject(4, VA.getLocMemOffset(), true);
-      SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
-      if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32) {
-        ArgValue =
-            DAG.getLoad(VA.getValVT(), DL, Chain, FIPtr, MachinePointerInfo());
+      if (Tricore::AGPRRegClass.contains(VA.getLocReg())) {
+        // EABI pointer arguments arrive in A4-A7. SelectionDAG represents
+        // their values as i32, whose default register class is DGPR. First
+        // materialize the ABI input in an AGPR virtual register, then perform
+        // the explicit address-to-data transfer with mov.d.
+        //
+        // Registering the physical argument as a live-in is essential: a
+        // direct CopyFromReg of A4/A5 without a live-in fails machine
+        // verification with "Using an undefined physical register".
+        Register AReg = RegInfo.createVirtualRegister(&Tricore::AGPRRegClass);
+        RegInfo.addLiveIn(VA.getLocReg(), AReg);
+        SDValue AValue = DAG.getCopyFromReg(Chain, DL, AReg, LocVT);
+        Chain = AValue.getValue(1);
+        ArgValue = DAG.getNode(TricoreISD::MOV_D, DL, LocVT, AValue);
       } else {
-        // We shouldn't see any other value types here.
+        const TargetRegisterClass *RC = getRegClassFor(LocVT.getSimpleVT());
+        Register VReg = RegInfo.createVirtualRegister(RC);
+        RegInfo.addLiveIn(VA.getLocReg(), VReg);
+        ArgValue = DAG.getCopyFromReg(Chain, DL, VReg, LocVT);
+      }
+    } else if (VA.isMemLoc()) {
+      EVT ValVT = VA.getValVT();
+      unsigned Size = ValVT.getStoreSize();
+      int FI = MF.getFrameInfo().CreateFixedObject(
+          Size, VA.getLocMemOffset(), true);
+      SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
+      if (ValVT == MVT::i32 || ValVT == MVT::f32 || ValVT == MVT::i64 ||
+          ValVT == MVT::f64) {
+        ArgValue =
+            DAG.getLoad(ValVT, DL, Chain, FIPtr, MachinePointerInfo());
+      } else {
         llvm_unreachable("Unexpected ValVT encountered in frame lowering.");
       }
     }
@@ -275,6 +309,20 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
   bool IsVarArg = CLI.IsVarArg;
   MachineFunction &MF = DAG.getMachineFunction();
 
+  // Reconstruct pointer-ness from the original IR call operands. Pointer
+  // arguments must use A4-A7, while their SelectionDAG values remain ordinary
+  // i32/DGPR values. CopyToReg to a physical A-register is lowered by
+  // copyPhysReg to MOVArr (mov.a).
+  SmallVector<ISD::OutputArg, 16> ABIOuts(Outs.begin(), Outs.end());
+  if (CLI.CB) {
+    for (ISD::OutputArg &Out : ABIOuts) {
+      if (!Out.Flags.isByVal() && Out.VT == MVT::i32 &&
+          Out.OrigArgIndex < CLI.CB->arg_size() &&
+          CLI.CB->getArgOperand(Out.OrigArgIndex)->getType()->isPointerTy())
+        Out.Flags.setPointer();
+    }
+  }
+
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), ArgLocs,
@@ -284,7 +332,8 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
   if (IsVarArg) {
     SmallVector<ISD::OutputArg, 16> ArgOuts;
     ArgOuts.resize(CLI.NumFixedArgs);
-    std::copy(Outs.begin(), Outs.begin() + CLI.NumFixedArgs, ArgOuts.begin());
+    std::copy(ABIOuts.begin(), ABIOuts.begin() + CLI.NumFixedArgs,
+              ArgOuts.begin());
     CCInfo.AnalyzeCallOperands(ArgOuts, CC_TricoreEABI);
 
     unsigned ValNo = CLI.NumFixedArgs;
@@ -300,7 +349,7 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
                                         CCValAssign::Full));
     }
   } else {
-    CCInfo.AnalyzeCallOperands(Outs, CC_TricoreEABI);
+    CCInfo.AnalyzeCallOperands(ABIOuts, CC_TricoreEABI);
   }
 
   // isTailCall = isTailCall && IsEligibleForTailCallOptimization(
@@ -360,7 +409,11 @@ TricoreTargetLowering::LowerCall(CallLoweringInfo &CLI,
       ArgValue = ByValArgs[ValI++];
 
     if (VA.isRegLoc()) {
-      // Queue up the argument copies and emit them at the end.
+      // Pointer arguments are assigned to A4-A7 by CC_TricoreEABI. Make the
+      // DGPR-to-AGPR transition an explicit target node so it survives DAG
+      // combining/coalescing and selects MOVArr (mov.a).
+      if (Tricore::AGPRRegClass.contains(VA.getLocReg()))
+        ArgValue = DAG.getNode(TricoreISD::MOV_A, DL, MVT::i32, ArgValue);
       RegsToPass.push_back(std::make_pair(VA.getLocReg(), ArgValue));
     } else {
       assert(VA.isMemLoc() && "Argument not register or memory");
@@ -484,7 +537,12 @@ bool TricoreTargetLowering::CanLowerReturn(
     const Type *RetTy) const {
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, Context);
-  return CCInfo.CheckReturn(Outs, RetCC_TricoreEABI);
+  // GetReturnInfo does not preserve pointer flags for this feasibility check.
+  SmallVector<ISD::OutputArg, 4> ABIOuts(Outs.begin(), Outs.end());
+  if (RetTy->isPointerTy())
+    for (ISD::OutputArg &Out : ABIOuts)
+      Out.Flags.setPointer();
+  return CCInfo.CheckReturn(ABIOuts, RetCC_TricoreEABI);
 }
 
 SDValue
@@ -519,6 +577,8 @@ TricoreTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     if (VA.needsCustom()) {
       assert(false);
     } else {
+      if (Tricore::AGPRRegClass.contains(VA.getLocReg()))
+        Val = DAG.getNode(TricoreISD::MOV_A, DL, VA.getLocVT(), Val);
       Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), Val, Glue);
 
       if (STI.isRegisterReservedByUser(VA.getLocReg()))

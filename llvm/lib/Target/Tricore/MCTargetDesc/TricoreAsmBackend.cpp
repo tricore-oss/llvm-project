@@ -106,6 +106,9 @@ public:
     // Apply any target-specific value adjustments.
     Value = adjustFixupValue(Fixup, Value, Ctx);
 
+    // Sign extension must not overwrite opcode bits next to the fixup field.
+    Value &= maskTrailingOnes<uint64_t>(Info.TargetSize);
+
     // Shift the value into position.
     Value <<= Info.TargetOffset;
 
